@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database_connection import engine
+from app.core.exception_handlers import register_exception_handlers
 from sqlalchemy import text
 from app.api import test_routes
+from app.api import app_user_routes
 
 
 app = FastAPI(
@@ -12,6 +14,8 @@ app = FastAPI(
 )
 
 app.include_router(test_routes.router)
+app.include_router(app_user_routes.router)
+register_exception_handlers(app)
 
 
 """
