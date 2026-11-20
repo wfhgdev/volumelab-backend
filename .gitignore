@@ -7,7 +7,19 @@ ENV/
 env.bak/
 venv.bak/
 
-# PyCharm
+# Byte-compiled / optimized / DLL files (Python caches)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing / typing / tool caches
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDEs & Editors
 .idea/
+.vscode/
 
 # Toptal gitignore https://www.toptal.com/
