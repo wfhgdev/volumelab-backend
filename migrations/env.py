@@ -6,8 +6,9 @@ from alembic import context
 from app.core.config import settings
 from app.core.database_connection import Base
 from app.models import test_model
-from app.models import workout_rate_model
 from app.models import app_user_model
+from app.models import weight_history_model
+from app.models import workout_rate_model
 from app.models import session_rate_model
 from app.models import mesocycle_model
 from app.models import training_week_model
