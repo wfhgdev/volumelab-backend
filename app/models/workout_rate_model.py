@@ -14,9 +14,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database_connection import Base
 
 # Definición de tablas de referencia con extend_existing para resolución de FKs
-# en SQLAlchemy antes de que los modelos completos de 'workout' y 'app_user' sean cargados.
-Table("workout", Base.metadata, Column("id", Integer, primary_key=True), extend_existing=True)
-Table("app_user", Base.metadata, Column("id", BigInteger, primary_key=True), extend_existing=True)
+# en SQLAlchemy antes de que los modelos completos sean cargados.
+if "workout" not in Base.metadata.tables:
+    Table("workout", Base.metadata, Column("id", Integer, primary_key=True), extend_existing=True)
+if "app_user" not in Base.metadata.tables:
+    Table("app_user", Base.metadata, Column("id", BigInteger, primary_key=True), extend_existing=True)
 
 
 class WorkoutRateModel(Base):
