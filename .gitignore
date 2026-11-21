@@ -24,5 +24,7 @@ __pycache__/
 
 # Local agent instructions
 AGENTS.md
+task/
+task/goal.md
 
 # Toptal gitignore https://www.toptal.com/
