@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database_connection import engine
 from sqlalchemy import text
-from app.api import test_routes
+from app.api import test_routes, mesocycle_routes
 
 
 app = FastAPI(
@@ -12,6 +12,7 @@ app = FastAPI(
 )
 
 app.include_router(test_routes.router)
+app.include_router(mesocycle_routes.router)
 
 
 """
