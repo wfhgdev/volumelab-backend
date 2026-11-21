@@ -7,8 +7,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database_connection import Base, get_db
 from app.models.app_user_model import AppUserModel
-from app.models.mesocycle_model import MesocycleModel
+from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
+from app.models.training_week_model import TrainingWeekModel
 from app.main import app
+
 
 
 # Base de datos en memoria para pruebas aisladas
@@ -64,3 +66,20 @@ def test_user(db_session) -> AppUserModel:
     db_session.commit()
     db_session.refresh(user)
     return user
+
+
+@pytest.fixture(scope="function")
+def test_mesocycle(db_session, test_user) -> MesocycleModel:
+    """Crea un mesociclo de prueba en la base de datos."""
+    meso = MesocycleModel(
+        user_id=test_user.id,
+        name="Mesociclo Base",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 3, 31),
+        status=MesocycleStatus.PLANIFICADO
+    )
+    db_session.add(meso)
+    db_session.commit()
+    db_session.refresh(meso)
+    return meso
+
