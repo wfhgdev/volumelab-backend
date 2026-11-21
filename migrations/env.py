@@ -8,6 +8,7 @@ from app.core.database_connection import Base
 from app.models import test_model
 from app.models import workout_rate_model
 from app.models import app_user_model
+from app.models import session_rate_model
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
