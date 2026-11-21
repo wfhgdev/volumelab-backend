@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database_connection import engine
+from app.core.exception_handlers import register_exception_handlers
 from sqlalchemy import text
-from app.api import test_routes, mesocycle_routes
+from app.api import test_routes, app_user_routes, mesocycle_routes
 
 
 app = FastAPI(
@@ -12,7 +13,10 @@ app = FastAPI(
 )
 
 app.include_router(test_routes.router)
+app.include_router(app_user_routes.router)
 app.include_router(mesocycle_routes.router)
+
+register_exception_handlers(app)
 
 
 """
@@ -22,4 +26,3 @@ def check_database():
         connection.execute(text("SELECT 1"))
     return {"message": "Conexión a la base de datos exitosa"}
 """
-

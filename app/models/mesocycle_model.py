@@ -3,7 +3,7 @@ from enum import Enum
 from sqlalchemy import BigInteger, Integer, String, Date as SQLDate, ForeignKey, CheckConstraint, Enum as SQLEnum, Identity
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database_connection import Base
-from app.models.user_model import UserModel
+from app.models.app_user_model import AppUserModel
 
 
 class MesocycleStatus(str, Enum):
@@ -46,4 +46,4 @@ class MesocycleModel(Base):
         server_default="PLANIFICADO"
     )
 
-    user: Mapped["UserModel"] = relationship("UserModel", backref="mesocycles", lazy="select")
+    user: Mapped["AppUserModel"] = relationship("AppUserModel", backref="mesocycles", lazy="select")

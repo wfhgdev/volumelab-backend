@@ -2,7 +2,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
-from app.models.user_model import UserModel
+from app.models.app_user_model import AppUserModel
 from app.schemas.mesocycle_schema import MesocycleCreate, MesocycleUpdate
 from app.core.exceptions import (
     MesocycleNotFoundException,
@@ -40,7 +40,7 @@ def create_mesocycle(db: Session, mesocycle: MesocycleCreate) -> MesocycleModel:
         raise MesocycleDateValidationException("end_date debe ser mayor o igual a start_date")
 
     # Validar existencia del usuario
-    user = db.get(UserModel, mesocycle.user_id)
+    user = db.get(AppUserModel, mesocycle.user_id)
     if not user:
         raise UserNotFoundException(mesocycle.user_id)
 

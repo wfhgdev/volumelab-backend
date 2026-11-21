@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database_connection import Base, get_db
-from app.models.user_model import UserModel
+from app.models.app_user_model import AppUserModel
 from app.models.mesocycle_model import MesocycleModel
 from app.main import app
 
@@ -50,9 +50,9 @@ def client(db_session):
 
 
 @pytest.fixture(scope="function")
-def test_user(db_session) -> UserModel:
+def test_user(db_session) -> AppUserModel:
     """Crea un usuario de prueba en la base de datos."""
-    user = UserModel(
+    user = AppUserModel(
         email="test_user@volumelab.com",
         password_hash="hashed_secret_password",
         name="Beatriz",
