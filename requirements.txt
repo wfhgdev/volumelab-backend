@@ -21,13 +21,6 @@ starlette==1.10.0
 typing-inspection==0.4.4
 typing_extensions==4.16.0
 uvicorn==0.54.0
-<<<<<<< HEAD
-httpx==0.28.1
-pytest==9.2.0
-pytest-bdd==9.0.1
-
-=======
 pytest==8.3.5
 pytest-bdd==8.1.0
 httpx==0.28.1
->>>>>>> origin/dev
