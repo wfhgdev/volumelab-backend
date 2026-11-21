@@ -29,9 +29,15 @@ class AppUserModel(Base):
         CheckConstraint("birth_date IS NULL OR birth_date <= CURRENT_DATE", name="chk_user_birth_date"),
         CheckConstraint("height_cm IS NULL OR height_cm BETWEEN 50 AND 300", name="chk_user_height"),
         Index("uq_app_user_email", text("LOWER(email)"), unique=True),
+        {"extend_existing": True}
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(always=True),
+        primary_key=True,
+        autoincrement=True
+    )
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -55,7 +61,7 @@ class AppUserModel(Base):
         ),
         nullable=False,
         default=RoleUser.CLIENTE,
-        server_default=text("'CLIENTE'::role_user"),
+        server_default="CLIENTE",
     )
     status: Mapped[UserStatus] = mapped_column(
         Enum(
@@ -66,7 +72,7 @@ class AppUserModel(Base):
         ),
         nullable=False,
         default=UserStatus.ACTIVO,
-        server_default=text("'ACTIVO'::user_status"),
+        server_default="ACTIVO",
     )
     height_cm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

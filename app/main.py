@@ -7,6 +7,7 @@ from app.api import test_routes
 from app.api import app_user_routes
 from app.api import workout_rate_routes
 from app.api import session_rate_routes
+from app.api import mesocycle_routes
 
 
 app = FastAPI(
@@ -17,6 +18,7 @@ app = FastAPI(
 
 app.include_router(test_routes.router)
 app.include_router(app_user_routes.router)
+app.include_router(mesocycle_routes.router)
 app.include_router(workout_rate_routes.router)
 app.include_router(session_rate_routes.router)
 register_exception_handlers(app)
@@ -29,4 +31,3 @@ def check_database():
         connection.execute(text("SELECT 1"))
     return {"message": "Conexión a la base de datos exitosa"}
 """
-
