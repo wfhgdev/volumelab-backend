@@ -27,11 +27,3 @@ app.include_router(workout_rate_routes.router)
 app.include_router(session_rate_routes.router)
 register_exception_handlers(app)
 
-
-"""
-@app.get("/health/db", tags=["Health"])
-def check_database():
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
-    return {"message": "Conexión a la base de datos exitosa"}
-"""
