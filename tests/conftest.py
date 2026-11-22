@@ -9,6 +9,8 @@ from app.core.database_connection import Base, get_db
 from app.models.app_user_model import AppUserModel
 from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
 from app.models.training_week_model import TrainingWeekModel
+from app.models.muscle_group_model import MuscleGroupModel
+from app.models.workout_model import ExerciseType, WorkoutModel
 from app.main import app
 
 
@@ -111,16 +113,15 @@ def workout_api(client, workout_db, test_user):
 def muscle_group_api(client, db_session, test_user):
     test_user.role = "ADMIN"
     db_session.commit()
-    db_session.execute(text(
-        "CREATE TABLE muscle_workout (workout_id INTEGER NOT NULL, "
-        "muscle_group_id INTEGER NOT NULL REFERENCES muscle_group(id) ON DELETE CASCADE, "
-        "PRIMARY KEY (workout_id, muscle_group_id))"
-    ))
-    db_session.commit()
-    try:
-        yield client, db_session, test_user
-    finally:
-        db_session.rollback()
-        db_session.execute(text("DROP TABLE IF EXISTS muscle_workout"))
-        db_session.commit()
+    return client, db_session, test_user
+
+
+@pytest.fixture
+def association_api(client, workout_db, test_user):
+    test_user.role = "ADMIN"
+    workout = WorkoutModel(name="Squat", type=ExerciseType.DYNAMIC, created_by=test_user.id)
+    group = MuscleGroupModel(name="Legs", created_by=test_user.id)
+    workout_db.add_all([workout, group])
+    workout_db.commit()
+    return client, workout_db, workout, group
 

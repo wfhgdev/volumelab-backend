@@ -13,8 +13,10 @@ from app.core.database_connection import get_db
 from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.muscle_group_model import MuscleGroupModel
+from app.models.muscle_workout_model import MuscleWorkoutModel
 from app.schemas.muscle_group_schema import MuscleGroupCreate, MuscleGroupUpdate
 from tests.postgres_fixtures import migrate_database
+from tests.catalog_support import associate_group
 
 
 pytestmark = pytest.mark.postgres
@@ -34,12 +36,8 @@ def add_user(db, role="ADMIN", email=None):
 def group_engine(postgres_database_factory):
     with postgres_database_factory() as engine:
         migrate_database(engine, "muscle_group@head")
-        with engine.begin() as connection:
-            connection.execute(text(
-                "CREATE TABLE muscle_workout (workout_id integer NOT NULL, "
-                "muscle_group_id integer NOT NULL REFERENCES muscle_group(id) ON DELETE CASCADE, "
-                "PRIMARY KEY (workout_id, muscle_group_id))"
-            ))
+        migrate_database(engine, "workout@head")
+        MuscleWorkoutModel.__table__.create(engine)
         yield engine
 
 
@@ -168,10 +166,7 @@ def test_unique_constraint_protects_direct_writes(group_db):
 def test_association_protection_and_creator_anonymization(group_db):
     admin = add_user(group_db)
     record = controller.create_muscle_group(group_db, MuscleGroupCreate(name="Chest", created_by=admin.id))
-    group_db.execute(text(
-        "INSERT INTO muscle_workout (workout_id, muscle_group_id) VALUES (1, :id), (2, :id)"
-    ), {"id": record.id})
-    group_db.commit()
+    associate_group(group_db, record.id, admin.id, count=2)
     with pytest.raises(HTTPException) as error:
         controller.delete_muscle_group(group_db, record.id)
     assert error.value.status_code == 409
