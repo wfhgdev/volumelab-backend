@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -82,4 +82,24 @@ def test_mesocycle(db_session, test_user) -> MesocycleModel:
     db_session.commit()
     db_session.refresh(meso)
     return meso
+
+
+@pytest.fixture
+def workout_db(db_session):
+    db_session.execute(text(
+        "CREATE TABLE workout_set (id INTEGER PRIMARY KEY, "
+        "exercise_id INTEGER NOT NULL REFERENCES workout(id))"
+    ))
+    db_session.commit()
+    try:
+        yield db_session
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE workout_set"))
+        db_session.commit()
+
+
+@pytest.fixture
+def workout_api(client, workout_db, test_user):
+    return client, workout_db, test_user
 
