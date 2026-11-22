@@ -13,7 +13,6 @@ from app.core.database_connection import get_db
 from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.muscle_group_model import MuscleGroupModel
-from app.models.muscle_workout_model import MuscleWorkoutModel
 from app.schemas.muscle_group_schema import MuscleGroupCreate, MuscleGroupUpdate
 from tests.postgres_fixtures import migrate_database
 from tests.catalog_support import associate_group
@@ -35,9 +34,7 @@ def add_user(db, role="ADMIN", email=None):
 @pytest.fixture(scope="module")
 def group_engine(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_group@head")
-        migrate_database(engine, "workout@head")
-        MuscleWorkoutModel.__table__.create(engine)
+        migrate_database(engine, "muscle_workout@head")
         yield engine
 
 
