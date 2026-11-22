@@ -10,6 +10,7 @@ from app.api import workout_rate_routes
 from app.api import session_rate_routes
 from app.api import mesocycle_routes
 from app.api import training_week_routes
+from app.api import workout_routes
 
 
 app = FastAPI(
@@ -25,5 +26,6 @@ app.include_router(mesocycle_routes.router)
 app.include_router(training_week_routes.router)
 app.include_router(workout_rate_routes.router)
 app.include_router(session_rate_routes.router)
+app.include_router(workout_routes.router)
 register_exception_handlers(app)
 
