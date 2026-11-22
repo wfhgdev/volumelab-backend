@@ -10,7 +10,8 @@ def create_payload(user, **changes):
 
 
 def seed_workouts(db, user, count, **changes):
-    records = [WorkoutModel(name=f"Exercise {index}", type="DINAMICO", created_by=user.id, **changes) for index in range(count)]
+    records = [WorkoutModel(name=f"Exercise {index}", type="DINAMICO", created_by=user.id, **changes) for index in
+               range(count)]
     db.add_all(records)
     db.commit()
     return records
@@ -85,11 +86,13 @@ def test_missing_creator_and_invalid_payload(workout_api):
 
 def test_partial_flag_update_checks_existing_values(workout_api):
     client, _, user = workout_api
-    created = client.post("/workouts/", json=create_payload(user, is_bodyweight=True, allow_negative_ballast=True)).json()
+    created = client.post("/workouts/",
+                          json=create_payload(user, is_bodyweight=True, allow_negative_ballast=True)).json()
     workout_id = created["id"]
     assert client.put(f"/workouts/{workout_id}", json={"is_bodyweight": False}).status_code == 422
     assert client.get(f"/workouts/{workout_id}").json()["is_bodyweight"] is True
-    assert client.put(f"/workouts/{workout_id}", json={"is_bodyweight": False, "allow_negative_ballast": False}).status_code == 200
+    assert client.put(f"/workouts/{workout_id}",
+                      json={"is_bodyweight": False, "allow_negative_ballast": False}).status_code == 200
 
 
 def test_client_limit_counts_inactive_workouts_and_allows_private_creation(workout_api):

@@ -5,10 +5,18 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
 
-from app.controllers.workout_controller import create_workout, delete_workout, get_workout, list_workouts, update_workout
+from app.controllers.workout_controller import create_workout, delete_workout, get_workout, list_workouts, \
+    update_workout
 from app.models.app_user_model import AppUserModel, RoleUser
 from app.models.workout_model import ExerciseType, WorkoutModel
 from app.schemas.workout_schema import WorkoutCreate, WorkoutUpdate
+
+
+class DatabaseError(Exception):
+    def __init__(self, sqlstate, diag=None):
+        super().__init__("Private database details")
+        self.sqlstate = sqlstate
+        self.diag = diag
 
 
 def make_workout(**changes):
@@ -33,7 +41,7 @@ def test_creation_checks_creator_and_commits():
     creator = AppUserModel(id=1, role=RoleUser.CLIENTE)
     db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = creator
     db.query.return_value.filter.return_value.first.return_value = None
-    result = create_workout(db, WorkoutCreate(name="Squat", type="DINAMICO", created_by=1))
+    result = create_workout(db, WorkoutCreate(name="Squat", type=ExerciseType.DYNAMIC, created_by=1))
     assert result.name == "Squat"
     db.commit.assert_called_once()
     db.refresh.assert_called_once_with(result)
@@ -43,7 +51,7 @@ def test_creation_rejects_missing_creator():
     db = MagicMock()
     db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = None
     with pytest.raises(HTTPException) as error:
-        create_workout(db, WorkoutCreate(name="Squat", type="DINAMICO", created_by=99))
+        create_workout(db, WorkoutCreate(name="Squat", type=ExerciseType.DYNAMIC, created_by=99))
     assert error.value.status_code == 404
     db.commit.assert_not_called()
 
@@ -51,7 +59,7 @@ def test_creation_rejects_missing_creator():
 def test_creation_rejects_duplicate_name():
     db = database_with_workout(make_workout())
     with pytest.raises(HTTPException) as error:
-        create_workout(db, WorkoutCreate(name="Squat", type="DINAMICO", created_by=1))
+        create_workout(db, WorkoutCreate(name="Squat", type=ExerciseType.DYNAMIC, created_by=1))
     assert error.value.status_code == 409
     db.commit.assert_not_called()
 
@@ -81,7 +89,7 @@ def test_type_change_with_recorded_sets_is_rejected():
     db = database_with_workout(make_workout())
     db.execute.return_value.first.return_value = (1,)
     with pytest.raises(HTTPException) as error:
-        update_workout(db, 1, WorkoutUpdate(type="ISOMETRICO"))
+        update_workout(db, 1, WorkoutUpdate(type=ExerciseType.ISOMETRIC))
     assert error.value.status_code == 409
     db.commit.assert_not_called()
 
@@ -89,7 +97,7 @@ def test_type_change_with_recorded_sets_is_rejected():
 def test_type_change_without_sets_is_allowed():
     db = database_with_workout(make_workout())
     db.execute.return_value.first.return_value = None
-    result = update_workout(db, 1, WorkoutUpdate(type="ISOMETRICO", description=None))
+    result = update_workout(db, 1, WorkoutUpdate(type=ExerciseType.ISOMETRIC, description=None))
     assert result.type is ExerciseType.ISOMETRIC
     db.commit.assert_called_once()
 
@@ -110,7 +118,7 @@ def test_deletion_is_logical_and_repeatable():
 ])
 def test_database_errors_are_sanitized_and_rolled_back(sqlstate, expected):
     db = database_with_workout(make_workout())
-    original = SimpleNamespace(sqlstate=sqlstate, diag=None)
+    original = DatabaseError(sqlstate)
     db.commit.side_effect = DBAPIError("private SQL", {}, original)
     with pytest.raises(HTTPException) as error:
         delete_workout(db, 1)
@@ -121,7 +129,7 @@ def test_database_errors_are_sanitized_and_rolled_back(sqlstate, expected):
 
 def test_read_errors_are_sanitized():
     db = MagicMock()
-    db.query.side_effect = DBAPIError("private SQL", {}, SimpleNamespace(sqlstate="08006"))
+    db.query.side_effect = DBAPIError("private SQL", {}, DatabaseError("08006"))
     with pytest.raises(HTTPException) as error:
         list_workouts(db)
     assert error.value.status_code == 500
@@ -130,7 +138,9 @@ def test_read_errors_are_sanitized():
 
 def test_existing_trigger_limit_is_translated():
     db = database_with_workout(make_workout())
-    original = SimpleNamespace(sqlstate="P0001", diag=SimpleNamespace(constraint_name=None, context="PL/pgSQL function fn_workout_client_limit()"))
+    original = DatabaseError("P0001", diag=SimpleNamespace(
+        constraint_name=None, context="PL/pgSQL function fn_workout_client_limit()",
+    ))
     db.commit.side_effect = DBAPIError("UPDATE", {}, original)
     with pytest.raises(HTTPException) as error:
         delete_workout(db, 1)

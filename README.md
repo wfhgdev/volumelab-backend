@@ -418,6 +418,59 @@ pytest
 
 ---
 
+## CRUD de ejercicios (`workout`)
+
+La API expone `POST /workouts/`, `GET /workouts/`, `GET /workouts/{workout_id}`,
+`PUT /workouts/{workout_id}` y `DELETE /workouts/{workout_id}`.
+Los detalles y cuerpos de petición están disponibles en `/docs`.
+
+La creación requiere `name`, `type` (`DINAMICO` o `ISOMETRICO`) y `created_by`.
+La actualización mediante `PUT` conserva los campos omitidos. `DELETE` desactiva
+el ejercicio con `state=false`; conserva sus series y valoraciones. Es posible
+reactivarlo mediante `PUT` con `state=true`.
+
+El listado admite `skip`, `limit` (máximo 500), `created_by`, `type`, `public`
+y `state`. Sin filtros incluye ejercicios activos e inactivos. Los clientes
+pueden tener hasta 20 ejercicios públicos, incluidos los inactivos; los privados
+y los ejercicios de administradores no tienen ese límite. Un ejercicio con
+series registradas no permite cambiar su tipo. La autenticación y el aislamiento
+de datos por identidad autenticada quedan fuera de este CRUD.
+
+### Migración de ejercicios
+
+Antes de crear o aplicar una migración, avisar al equipo, actualizar la rama de
+trabajo e integrar `origin/dev`. El historial actual contiene varias cabezas de
+Alembic; para aplicar únicamente esta rama, ejecutar desde `volumelab-backend`:
+
+```bash
+./env/Scripts/python.exe -m alembic upgrade workout@head
+```
+
+En Linux y macOS, sustituir `./env/Scripts/python.exe` por `./env/bin/python`.
+La revisión `f2a7c8e9d410` depende de la creación de `app_user`. Crea `workout`
+si falta, o comprueba y conserva una tabla existente compatible. Mantiene el
+enum, las restricciones, el índice del creador y el trigger de límite público.
+Una estructura incompatible detiene la migración. Sus revisiones antecesoras
+también se aplican cuando aún no están registradas.
+
+La reversión elimina los objetos de `workout` y se verifica en bases desechables;
+no debe utilizarse para deshacer la adopción de una tabla con datos de trabajo.
+Esta revisión no unifica las demás ramas de migraciones del proyecto.
+
+### Pruebas de ejercicios
+
+```bash
+./env/Scripts/python.exe -m pytest -q
+./env/Scripts/python.exe -m pytest --run-postgres -q
+```
+
+La primera ejecución omite las pruebas que requieren PostgreSQL. La segunda
+ejecuta también migraciones, restricciones, concurrencia y valoraciones en bases
+temporales llamadas `volumelab_workout_test_<identifier>`, que se eliminan al
+terminar. Utiliza el servidor y las credenciales de `.env`; el usuario necesita
+permiso para crear bases de datos. Los tests no escriben en la base `volumelab`.
+Los 14 escenarios ejecutables en `features/workout.feature` están en inglés.
+
 ## Equipo
 
 | Miembro | Rol |

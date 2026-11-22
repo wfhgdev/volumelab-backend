@@ -1,6 +1,9 @@
 from enum import Enum as PythonEnum
 
-from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKey, Identity, Index, Integer, String, Text, UniqueConstraint, false, true
+from sqlalchemy import (
+    Boolean, CheckConstraint, Enum, ForeignKey, Identity, Index, Integer,
+    String, Text, UniqueConstraint, false, true,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database_connection import Base
@@ -25,7 +28,8 @@ class WorkoutModel(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     type: Mapped[ExerciseType] = mapped_column(
-        Enum(ExerciseType, name="exercise_type", values_callable=lambda members: [member.value for member in members], validate_strings=True),
+        Enum(ExerciseType, name="exercise_type", values_callable=lambda members: [member.value for member in members],
+             validate_strings=True),
         nullable=False,
     )
     is_bodyweight: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())

@@ -12,6 +12,9 @@ from app.models.training_week_model import TrainingWeekModel
 from app.main import app
 
 
+pytest_plugins = ("tests.postgres_fixtures",)
+
+
 
 # Base de datos en memoria para pruebas aisladas
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"

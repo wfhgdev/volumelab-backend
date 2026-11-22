@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_vali
 
 from app.models.workout_model import ExerciseType
 
-
 WorkoutName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 

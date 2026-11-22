@@ -4,7 +4,6 @@ from sqlalchemy import text
 
 from app.models.workout_model import WorkoutModel
 
-
 scenarios("../features/workout.feature")
 
 
@@ -36,13 +35,15 @@ def existing_workout(workout_context, name):
 @given(parsers.parse("the client owns {count:d} public workouts"))
 def existing_public_workouts(workout_context, count):
     db = workout_context["db"]
-    db.add_all([WorkoutModel(name=f"Public exercise {index}", type="DINAMICO", created_by=workout_context["user"].id, public=True) for index in range(count)])
+    db.add_all([WorkoutModel(name=f"Public exercise {index}", type="DINAMICO", created_by=workout_context["user"].id,
+                             public=True) for index in range(count)])
     db.commit()
 
 
 @given("the workout has a recorded set")
 def recorded_set(workout_context):
-    workout_context["db"].execute(text("INSERT INTO workout_set (exercise_id) VALUES (:id)"), {"id": workout_context["workout_id"]})
+    workout_context["db"].execute(text("INSERT INTO workout_set (exercise_id) VALUES (:id)"),
+                                  {"id": workout_context["workout_id"]})
     workout_context["db"].commit()
 
 
@@ -63,7 +64,8 @@ def create_workout(workout_context, visibility, name):
 @when("I create an assisted workout without bodyweight")
 def create_invalid_workout(workout_context):
     workout_context["response"] = workout_context["client"].post("/workouts/", json={
-        "name": "Assisted pull-up", "type": "DINAMICO", "created_by": workout_context["user"].id, "allow_negative_ballast": True,
+        "name": "Assisted pull-up", "type": "DINAMICO", "created_by": workout_context["user"].id,
+        "allow_negative_ballast": True,
     })
 
 
@@ -142,7 +144,8 @@ def preserved_workout(workout_context):
 
 @then("its recorded set remains stored")
 def preserved_set(workout_context):
-    assert workout_context["db"].execute(text("SELECT COUNT(*) FROM workout_set WHERE exercise_id = :id"), {"id": workout_context["workout_id"]}).scalar_one() == 1
+    assert workout_context["db"].execute(text("SELECT COUNT(*) FROM workout_set WHERE exercise_id = :id"),
+                                         {"id": workout_context["workout_id"]}).scalar_one() == 1
 
 
 @then("the workout is active")

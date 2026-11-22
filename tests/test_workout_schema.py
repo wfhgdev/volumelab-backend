@@ -6,7 +6,7 @@ from app.schemas.workout_schema import WorkoutCreate, WorkoutResponse, WorkoutUp
 
 
 def test_creation_preserves_database_defaults_and_trims_name():
-    payload = WorkoutCreate(name="  Squat  ", type="DINAMICO", created_by=1)
+    payload = WorkoutCreate(name="  Squat  ", type=ExerciseType.DYNAMIC, created_by=1)
     assert payload.name == "Squat"
     assert payload.type is ExerciseType.DYNAMIC
     assert payload.model_dump() == {
@@ -27,11 +27,14 @@ def test_creation_rejects_invalid_input(changes):
 
 
 def test_bodyweight_exercise_can_allow_assistance():
-    payload = WorkoutCreate(name="Pull-up", type="DINAMICO", created_by=1, is_bodyweight=True, allow_negative_ballast=True)
+    payload = WorkoutCreate(name="Pull-up", type=ExerciseType.DYNAMIC, created_by=1, is_bodyweight=True,
+                            allow_negative_ballast=True)
     assert payload.allow_negative_ballast
 
 
-@pytest.mark.parametrize("field_name", ["name", "type", "created_by", "state", "public", "is_bodyweight", "allow_positive_ballast", "allow_negative_ballast"])
+@pytest.mark.parametrize("field_name",
+                         ["name", "type", "created_by", "state", "public", "is_bodyweight", "allow_positive_ballast",
+                          "allow_negative_ballast"])
 def test_update_rejects_explicit_null(field_name):
     with pytest.raises(ValidationError):
         WorkoutUpdate.model_validate({field_name: None})
@@ -43,6 +46,6 @@ def test_update_preserves_omissions_and_allows_clearing_description():
 
 
 def test_response_supports_anonymized_creator():
-    result = WorkoutResponse(id=1, name="Plank", type="ISOMETRICO", created_by=None)
+    result = WorkoutResponse(id=1, name="Plank", type=ExerciseType.ISOMETRIC, created_by=None)
     assert result.created_by is None
     assert "created_at" not in result.model_dump()

@@ -23,7 +23,7 @@ def _database_error(exc: DBAPIError) -> HTTPException:
     if sqlstate in {"23502", "23514", "22P02"}:
         return HTTPException(422, "Workout data violates a database constraint")
     if sqlstate == "P0001" and (
-        constraint == "workout_public_limit" or "fn_workout_client_limit" in context
+            constraint == "workout_public_limit" or "fn_workout_client_limit" in context
     ):
         return HTTPException(409, "A client can have at most 20 public workouts")
     return HTTPException(500, "An unexpected database error occurred")
@@ -52,7 +52,7 @@ def _find_workout(db: Session, workout_id: int, lock: bool = False) -> WorkoutMo
 
 
 def _validate_creator_and_limit(
-    db: Session, created_by: int, public: bool, workout_id: int | None = None,
+        db: Session, created_by: int, public: bool, workout_id: int | None = None,
 ) -> None:
     creator = (
         db.query(AppUserModel)
@@ -62,7 +62,7 @@ def _validate_creator_and_limit(
     )
     if creator is None:
         raise HTTPException(404, "Workout creator not found")
-    if not public or creator.role != RoleUser.CLIENTE:
+    if not public or RoleUser(creator.role) is not RoleUser.CLIENTE:
         return
     query = db.query(WorkoutModel).filter(
         WorkoutModel.created_by == created_by, WorkoutModel.public.is_(True),
@@ -93,9 +93,9 @@ def create_workout(db: Session, payload: WorkoutCreate) -> WorkoutModel:
 
 
 def list_workouts(
-    db: Session, skip: int = 0, limit: int = 100,
-    created_by: int | None = None, exercise_type: ExerciseType | None = None,
-    public: bool | None = None, state: bool | None = None,
+        db: Session, skip: int = 0, limit: int = 100,
+        created_by: int | None = None, exercise_type: ExerciseType | None = None,
+        public: bool | None = None, state: bool | None = None,
 ) -> list[WorkoutModel]:
     with _database_operation(db):
         query = db.query(WorkoutModel)
