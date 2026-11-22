@@ -106,3 +106,21 @@ def workout_db(db_session):
 def workout_api(client, workout_db, test_user):
     return client, workout_db, test_user
 
+
+@pytest.fixture
+def muscle_group_api(client, db_session, test_user):
+    test_user.role = "ADMIN"
+    db_session.commit()
+    db_session.execute(text(
+        "CREATE TABLE muscle_workout (workout_id INTEGER NOT NULL, "
+        "muscle_group_id INTEGER NOT NULL REFERENCES muscle_group(id) ON DELETE CASCADE, "
+        "PRIMARY KEY (workout_id, muscle_group_id))"
+    ))
+    db_session.commit()
+    try:
+        yield client, db_session, test_user
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE IF EXISTS muscle_workout"))
+        db_session.commit()
+
