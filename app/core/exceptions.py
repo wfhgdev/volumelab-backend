@@ -47,3 +47,20 @@ class TrainingWeekDateValidationException(HTTPException):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail
         )
+
+
+class AuditNotFoundException(HTTPException):
+    def __init__(self, audit_id: int):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Registro de auditoría con id {audit_id} no encontrado",
+        )
+
+
+class AuditDateRangeValidationException(HTTPException):
+    def __init__(self, detail: str = "date_from no puede ser posterior a date_to"):
+        super().__init__(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+
