@@ -88,17 +88,23 @@ def record_audit_event(
     details: dict[str, Any] | None = None,
 ) -> AuditModel:
     """Persiste el evento en `audit` (esquema v4) y emite el log estructurado con severidad y datos de valor."""
+    resolved_action = (
+        action if isinstance(action, AuditAction) else AuditAction(action)
+    )
+    resolved_level = (
+        level if isinstance(level, AuditLogLevel) else AuditLogLevel(level.upper())
+    )
     payload = AuditCreate(
         user_id=user_id,
         entity=entity,
         record_id=str(record_id),
-        action=action,
+        action=resolved_action,
         endpoint=endpoint,
     )
     record = create_audit(db, payload)
-    if level != AuditLogLevel.INFO or message is not None or details is not None:
+    if resolved_level != AuditLogLevel.INFO or message is not None or details is not None:
         log_audit_event(
-            level,
+            resolved_level,
             event="audit.domain_event",
             message=message or f"Evento {record.action.value} sobre {record.entity}",
             user_id=record.user_id,
@@ -218,14 +224,12 @@ def update_audit(db: Session, audit_id: int, payload: AuditUpdate) -> AuditModel
 
 def delete_audit(db: Session, audit_id: int) -> None:
     record = get_audit(db, audit_id)
-    snapshot = {
-        "audit_id": record.id,
-        "user_id": record.user_id,
-        "entity": record.entity,
-        "record_id": record.record_id,
-        "action": record.action,
-        "endpoint": record.endpoint,
-    }
+    deleted_id = record.id
+    deleted_user_id = record.user_id
+    deleted_entity = record.entity
+    deleted_record_id = record.record_id
+    deleted_action = record.action
+    deleted_endpoint = record.endpoint
     db.delete(record)
     try:
         db.commit()
@@ -246,11 +250,11 @@ def delete_audit(db: Session, audit_id: int) -> None:
         AuditLogLevel.INFO,
         event="audit.deleted",
         message=f"Registro de auditoría {audit_id} eliminado",
-        user_id=snapshot["user_id"],
-        entity=snapshot["entity"],
-        record_id=snapshot["record_id"],
-        action=snapshot["action"],
-        endpoint=snapshot["endpoint"],
+        user_id=deleted_user_id,
+        entity=deleted_entity,
+        record_id=deleted_record_id,
+        action=deleted_action,
+        endpoint=deleted_endpoint,
         status_code=status.HTTP_204_NO_CONTENT,
-        details={"audit_id": snapshot["audit_id"]},
+        details={"audit_id": deleted_id},
     )
