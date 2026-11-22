@@ -1,7 +1,7 @@
 import pytest
 from datetime import date
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -82,4 +82,22 @@ def test_mesocycle(db_session, test_user) -> MesocycleModel:
     db_session.commit()
     db_session.refresh(meso)
     return meso
+
+
+@pytest.fixture
+def muscle_group_api(client, db_session, test_user):
+    test_user.role = "ADMIN"
+    db_session.commit()
+    db_session.execute(text(
+        "CREATE TABLE muscle_workout (workout_id INTEGER NOT NULL, "
+        "muscle_group_id INTEGER NOT NULL REFERENCES muscle_group(id) ON DELETE CASCADE, "
+        "PRIMARY KEY (workout_id, muscle_group_id))"
+    ))
+    db_session.commit()
+    try:
+        yield client, db_session, test_user
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE IF EXISTS muscle_workout"))
+        db_session.commit()
 
