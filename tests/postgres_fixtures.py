@@ -2,13 +2,11 @@ from contextlib import contextmanager
 from pathlib import Path
 import re
 from uuid import uuid4
-
 from alembic import command
 from alembic.config import Config
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
-
 from app.core.config import settings
 
 
@@ -34,6 +32,8 @@ def postgres_database_factory(request):
 
     @contextmanager
     def isolated_database():
+        database_name = f"volumelab_workout_test_{uuid4().hex[:12]}"
+        if not re.fullmatch(r"volumelab_workout_test_[0-9a-f]{12}", database_name):
         database_name = f"volumelab_test_{uuid4().hex[:12]}"
         if not re.fullmatch(r"volumelab_test_[0-9a-f]{12}", database_name):
             raise ValueError("Invalid isolated database name")
@@ -57,7 +57,7 @@ def postgres_database_factory(request):
 @pytest.fixture(scope="session")
 def workout_postgres_engine(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "workout@head")
+        migrate_database(engine)
         migrate_database(engine, "e7b92c431d01")
         with engine.begin() as connection:
             connection.execute(text(

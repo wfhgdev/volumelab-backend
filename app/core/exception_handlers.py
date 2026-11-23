@@ -12,7 +12,7 @@ async def integrity_error_handler(request: Request, exc: Exception) -> JSONRespo
     lowered = db_message.lower()
 
     if sqlstate == "23505" or "unique" in lowered or "duplicate" in lowered:
-        if constraint == "uq_muscle_group_name" or ("muscle_group" in lowered and "name" in lowered):
+        if constraint == "uq_muscle_group_name" or "muscle_group" in lowered:
             return JSONResponse(
                 status_code=409,
                 content={"detail": "Ya existe un grupo muscular con este nombre"},
@@ -36,15 +36,10 @@ async def integrity_error_handler(request: Request, exc: Exception) -> JSONRespo
     if sqlstate == "23502" or "not-null" in lowered or "not null" in lowered:
         return JSONResponse(status_code=422, content={"detail": "Faltan campos obligatorios"})
     if sqlstate in {"23503", "23001"} or "foreign key" in lowered:
-        if "muscle_workout" in lowered:
-            if "muscle_group" in lowered:
-                return JSONResponse(
-                    status_code=409,
-                    content={"detail": "No se puede eliminar un grupo muscular asociado a ejercicios"},
-                )
+        if "muscle_workout" in lowered or "muscle_group" in lowered:
             return JSONResponse(
                 status_code=409,
-                content={"detail": "La asociación entra en conflicto con datos relacionados"},
+                content={"detail": "No se puede eliminar un grupo muscular asociado a ejercicios"},
             )
         if "workout" in lowered and ("created_by" in lowered or "creator" in lowered or "app_user" in lowered):
             return JSONResponse(

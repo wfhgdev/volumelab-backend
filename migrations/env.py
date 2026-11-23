@@ -13,7 +13,6 @@ from app.models import session_rate_model
 from app.models import mesocycle_model
 from app.models import training_week_model
 from app.models import workout_model
-
 from app.models import muscle_group_model
 from app.models import muscle_workout_model
 

@@ -33,7 +33,7 @@ def postgres_user(postgres_db):
 
 def test_migration_creates_and_reverses_workout_schema(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "workout@head")
+        migrate_database(engine)
         inspector = inspect(engine)
         assert inspector.has_table("workout")
         assert len(inspector.get_columns("workout")) == 10
@@ -41,7 +41,7 @@ def test_migration_creates_and_reverses_workout_schema(postgres_database_factory
         assert "uq_workout_name" in {constraint["name"] for constraint in inspector.get_unique_constraints("workout")}
         migrate_database(engine, "ad8c21f5e9b7", downgrade=True)
         assert not inspect(engine).has_table("workout")
-        migrate_database(engine, "workout@head")
+        migrate_database(engine)
         assert inspect(engine).has_table("workout")
 
 
@@ -55,8 +55,8 @@ def test_migration_adopts_unversioned_table_without_losing_data(postgres_databas
             db.commit()
         with engine.connect() as connection:
             before = connection.execute(text("SELECT * FROM workout")).mappings().all()
-        migrate_database(engine, "workout@head")
-        migrate_database(engine, "workout@head")
+        migrate_database(engine)
+        migrate_database(engine)
         with engine.connect() as connection:
             assert connection.execute(text("SELECT * FROM workout")).mappings().all() == before
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "f2a7c8e9d410"
@@ -69,14 +69,14 @@ def test_migration_rejects_incompatible_existing_schema(postgres_database_factor
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE workout ALTER COLUMN name TYPE varchar(100)"))
         with pytest.raises(RuntimeError, match="length of 200"):
-            migrate_database(engine, "workout@head")
+            migrate_database(engine)
         assert inspect(engine).get_columns("workout")[1]["type"].length == 100
 
 
 @pytest.mark.parametrize("disable_trigger", [False, True])
 def test_adoption_validates_and_preserves_existing_trigger(postgres_database_factory, disable_trigger):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "workout@head")
+        migrate_database(engine)
         with engine.begin() as connection:
             original = connection.execute(text("SELECT pg_get_functiondef('fn_workout_client_limit()'::regprocedure)")).scalar_one()
             connection.execute(text("UPDATE alembic_version SET version_num = 'ad8c21f5e9b7'"))
@@ -84,9 +84,9 @@ def test_adoption_validates_and_preserves_existing_trigger(postgres_database_fac
                 connection.execute(text("ALTER TABLE workout DISABLE TRIGGER trg_workout_client_limit"))
         if disable_trigger:
             with pytest.raises(RuntimeError, match="trigger is incompatible"):
-                migrate_database(engine, "workout@head")
+                migrate_database(engine)
         else:
-            migrate_database(engine, "workout@head")
+            migrate_database(engine)
         with engine.connect() as connection:
             assert connection.execute(text("SELECT pg_get_functiondef('fn_workout_client_limit()'::regprocedure)")).scalar_one() == original
 
@@ -154,7 +154,7 @@ def test_physical_deletion_is_restricted_when_sets_exist(postgres_db, postgres_u
 @pytest.mark.parametrize("access", ["api", "database"])
 def test_concurrent_public_creation_never_exceeds_twenty(postgres_database_factory, access):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "workout@head")
+        migrate_database(engine)
         with Session(engine) as db:
             user = add_user(db)
             user_id = user.id

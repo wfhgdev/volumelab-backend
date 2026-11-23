@@ -466,11 +466,10 @@ Esta revisión no unifica las demás ramas de migraciones del proyecto.
 
 La primera ejecución omite las pruebas que requieren PostgreSQL. La segunda
 ejecuta también migraciones, restricciones, concurrencia y valoraciones en bases
-temporales llamadas `volumelab_test_<identifier>`, que se eliminan al
+temporales llamadas `volumelab_workout_test_<identifier>`, que se eliminan al
 terminar. Utiliza el servidor y las credenciales de `.env`; el usuario necesita
 permiso para crear bases de datos. Los tests no escriben en la base `volumelab`.
 Los 14 escenarios ejecutables en `features/workout.feature` están en inglés.
-
 ## CRUD de grupos musculares (`muscle_group`)
 
 La API incorpora las siguientes operaciones, documentadas también en `/docs`:

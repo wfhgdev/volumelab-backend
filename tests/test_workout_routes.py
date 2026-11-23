@@ -1,6 +1,12 @@
 import pytest
 from sqlalchemy import text
-
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from app.core.database_connection import get_db
+from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.workout_model import WorkoutModel
 
@@ -15,6 +21,29 @@ def seed_workouts(db, user, count, **changes):
     db.add_all(records)
     db.commit()
     return records
+
+
+class _FakePgError(Exception):
+    def __init__(self, message: str, sqlstate: str | None = None, diag: object = None):
+        super().__init__(message)
+        self.sqlstate = sqlstate
+        self.diag = diag
+
+
+@pytest.fixture
+def client_with_mock_db():
+    db = MagicMock()
+    db.query.return_value.filter.return_value.count.return_value = 0
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app, raise_server_exceptions=False)
+    try:
+        yield client, db
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_crud_lifecycle_preserves_deactivated_record(workout_api):
@@ -141,3 +170,63 @@ def test_anonymized_workout_can_be_read_and_edited(workout_api):
     db.commit()
     assert client.get(f"/workouts/{record.id}").json()["created_by"] is None
     assert client.put(f"/workouts/{record.id}", json={"description": "Updated"}).status_code == 200
+
+
+def test_integrity_error_unique_returns_409(client_with_mock_db):
+    client, db = client_with_mock_db
+    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = AppUserModel(id=1, role="CLIENTE")
+    db.query.return_value.filter.return_value.first.return_value = None
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, _FakePgError("duplicate key value violates unique constraint", "23505")
+    )
+
+    response = client.post("/workouts/", json={"name": "Squat", "type": "DINAMICO", "created_by": 1})
+    assert response.status_code == 409
+    assert "registro ya existe" in response.json().get("detail", "") or "ya existe un ejercicio" in response.json().get("detail", "")
+
+
+def test_integrity_error_foreign_key_returns_409(client_with_mock_db):
+    client, db = client_with_mock_db
+    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = AppUserModel(id=1, role="CLIENTE")
+    db.query.return_value.filter.return_value.first.return_value = None
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, _FakePgError("violates foreign key constraint", "23503")
+    )
+
+    response = client.post("/workouts/", json={"name": "Squat", "type": "DINAMICO", "created_by": 1})
+    assert response.status_code == 409
+
+
+def test_integrity_error_check_returns_422(client_with_mock_db):
+    client, db = client_with_mock_db
+    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = AppUserModel(id=1, role="CLIENTE")
+    db.query.return_value.filter.return_value.first.return_value = None
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, _FakePgError("violates check constraint", "23514")
+    )
+
+    response = client.post("/workouts/", json={"name": "Squat", "type": "DINAMICO", "created_by": 1})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("diagnostic", [
+    SimpleNamespace(constraint_name="workout_public_limit", context=None),
+    SimpleNamespace(constraint_name=None, context="PL/pgSQL function fn_workout_client_limit()"),
+])
+def test_trigger_public_limit_returns_409(client_with_mock_db, diagnostic):
+    client, db = client_with_mock_db
+    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = AppUserModel(id=1, role="CLIENTE")
+    db.query.return_value.filter.return_value.first.return_value = None
+    db.commit.side_effect = DBAPIError("INSERT", {}, _FakePgError("limit reached", "P0001", diagnostic))
+
+    response = client.post("/workouts/", json={"name": "Squat", "type": "DINAMICO", "created_by": 1, "public": True})
+    assert response.status_code == 409
+
+
+def test_dbapi_error_returns_500(client_with_mock_db):
+    client, db = client_with_mock_db
+    db.query.side_effect = DBAPIError("SELECT", {}, _FakePgError("connection failure", "08006"))
+
+    response = client.get("/workouts/")
+    assert response.status_code == 500
+    assert "private" not in response.json().get("detail", "").lower()
