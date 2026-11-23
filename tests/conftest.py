@@ -1,13 +1,19 @@
 import pytest
 from datetime import date
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.database_connection import Base, get_db
+from app.core.database_connection import SessionLocal, engine, get_db
 from app.models.app_user_model import AppUserModel
 from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
+from app.main import app
+
+
+engine.echo = False
 from app.models.training_week_model import TrainingWeekModel
 from app.models.muscle_group_model import MuscleGroupModel
 from app.models.workout_model import ExerciseType, WorkoutModel
@@ -31,14 +37,18 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(scope="function")
 def db_session():
-    """Crea una base de datos limpia para cada test."""
-    Base.metadata.create_all(bind=engine_test)
-    session = TestingSessionLocal()
+    """Sesión PostgreSQL real con rollback al final de cada test."""
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = SessionLocal(bind=connection, join_transaction_mode="create_savepoint")
     try:
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine_test)
+        try:
+            transaction.rollback()
+        finally:
+            connection.close()
 
 
 @pytest.fixture(scope="function")
@@ -60,7 +70,7 @@ def client(db_session):
 def test_user(db_session) -> AppUserModel:
     """Crea un usuario de prueba en la base de datos."""
     user = AppUserModel(
-        email="test_user@volumelab.com",
+        email=f"test_user_{uuid4().hex}@volumelab.com",
         password_hash="hashed_secret_password",
         name="Beatriz",
         lastname="Iñiguez",
