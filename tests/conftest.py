@@ -3,6 +3,9 @@ from datetime import date
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.database_connection import SessionLocal, engine, get_db
 from app.models.app_user_model import AppUserModel
@@ -11,6 +14,25 @@ from app.main import app
 
 
 engine.echo = False
+from app.models.training_week_model import TrainingWeekModel
+from app.models.muscle_group_model import MuscleGroupModel
+from app.models.workout_model import ExerciseType, WorkoutModel
+from app.main import app
+
+
+pytest_plugins = ("tests.postgres_fixtures",)
+
+
+
+# Base de datos en memoria para pruebas aisladas
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+
+engine_test = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_test)
 
 
 @pytest.fixture(scope="function")
@@ -75,4 +97,61 @@ def test_mesocycle(db_session, test_user) -> MesocycleModel:
     db_session.commit()
     db_session.refresh(meso)
     return meso
+
+
+@pytest.fixture
+def workout_db(db_session):
+    db_session.execute(text(
+        "CREATE TABLE workout_set (id INTEGER PRIMARY KEY, "
+        "exercise_id INTEGER NOT NULL REFERENCES workout(id))"
+    ))
+    db_session.commit()
+    try:
+        yield db_session
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE workout_set"))
+        db_session.commit()
+
+
+@pytest.fixture
+def workout_api(client, workout_db, test_user):
+    return client, workout_db, test_user
+
+def muscle_group_api(client, db_session, test_user):
+    test_user.role = "ADMIN"
+    db_session.commit()
+    db_session.execute(text(
+        "CREATE TABLE workout_set (id INTEGER PRIMARY KEY, "
+        "exercise_id INTEGER NOT NULL REFERENCES workout(id))"
+    ))
+    db_session.commit()
+    try:
+        yield db_session
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE workout_set"))
+        db_session.commit()
+
+
+@pytest.fixture
+def workout_api(client, workout_db, test_user):
+    return client, workout_db, test_user
+
+
+@pytest.fixture
+def muscle_group_api(client, db_session, test_user):
+    test_user.role = "ADMIN"
+    db_session.commit()
+    return client, db_session, test_user
+
+
+@pytest.fixture
+def association_api(client, workout_db, test_user):
+    test_user.role = "ADMIN"
+    workout = WorkoutModel(name="Squat", type=ExerciseType.DYNAMIC, created_by=test_user.id)
+    group = MuscleGroupModel(name="Legs", created_by=test_user.id)
+    workout_db.add_all([workout, group])
+    workout_db.commit()
+    return client, workout_db, workout, group
 
