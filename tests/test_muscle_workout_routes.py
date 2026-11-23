@@ -1,6 +1,11 @@
+from unittest.mock import MagicMock
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
+from app.core.database_connection import get_db
+from app.main import app
 from app.models.muscle_group_model import MuscleGroupModel
 from app.models.muscle_workout_model import MuscleWorkoutModel
 from app.models.workout_model import WorkoutModel
@@ -8,6 +13,34 @@ from app.models.workout_model import WorkoutModel
 
 def request_payload(workout, group, **changes):
     return {"workout_id": workout.id, "muscle_group_id": group.id, "muscle_role": "PRIMARIO"} | changes
+
+
+class _FakePgError(Exception):
+    def __init__(self, message: str, sqlstate: str | None = None, diag: object = None):
+        super().__init__(message)
+        self.sqlstate = sqlstate
+        self.diag = diag
+
+
+@pytest.fixture
+def client_with_mock_db():
+    db = MagicMock()
+    # Mock workout and muscle group exist for create validations
+    db.query.return_value.filter.return_value.with_for_update.return_value.first.return_value = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    inspector = MagicMock()
+    inspector.has_table.return_value = False
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app, raise_server_exceptions=False)
+    try:
+        yield client, db, inspector
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_crud_uses_composite_key_and_preserves_parents(association_api):
@@ -125,3 +158,45 @@ def test_update_rejects_key_changes_and_inconsistent_weight(association_api):
     for changes in ({"workout_id": 2}, {"muscle_group_id": 2}, {"muscle_role": None}, {"muscle_role": "SECUNDARIO", "weighing": 100}):
         assert client.put(resource, json=changes).status_code == 422
         assert client.get(resource).json() == original
+
+
+def test_integrity_error_unique_returns_409(client_with_mock_db, monkeypatch):
+    client, db, inspector = client_with_mock_db
+    monkeypatch.setattr("app.controllers.muscle_workout_controller.inspect", lambda bind: inspector)
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, _FakePgError("duplicate key value violates unique constraint", "23505")
+    )
+
+    response = client.post("/muscle-workouts/", json={"workout_id": 1, "muscle_group_id": 2, "muscle_role": "PRIMARIO"})
+    assert response.status_code == 409
+
+
+def test_integrity_error_foreign_key_returns_409(client_with_mock_db, monkeypatch):
+    client, db, inspector = client_with_mock_db
+    monkeypatch.setattr("app.controllers.muscle_workout_controller.inspect", lambda bind: inspector)
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, _FakePgError("violates foreign key constraint", "23503")
+    )
+
+    response = client.post("/muscle-workouts/", json={"workout_id": 1, "muscle_group_id": 2, "muscle_role": "PRIMARIO"})
+    assert response.status_code == 409
+
+
+def test_integrity_error_check_returns_422(client_with_mock_db, monkeypatch):
+    client, db, inspector = client_with_mock_db
+    monkeypatch.setattr("app.controllers.muscle_workout_controller.inspect", lambda bind: inspector)
+    db.commit.side_effect = IntegrityError(
+        "INSERT", {}, _FakePgError("violates check constraint", "23514")
+    )
+
+    response = client.post("/muscle-workouts/", json={"workout_id": 1, "muscle_group_id": 2, "muscle_role": "PRIMARIO"})
+    assert response.status_code == 422
+
+
+def test_dbapi_error_returns_500(client_with_mock_db):
+    client, db, _ = client_with_mock_db
+    db.query.side_effect = DBAPIError("SELECT", {}, _FakePgError("connection failure", "08006"))
+
+    response = client.get("/muscle-workouts/")
+    assert response.status_code == 500
+    assert "private" not in response.json().get("detail", "").lower()

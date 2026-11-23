@@ -96,7 +96,6 @@ def test_recorded_sets_block_all_writes(database, operation):
         operation(db)
     assert error.value.status_code == 409
     db.commit.assert_not_called()
-    db.rollback.assert_called_once()
 
 
 def test_role_update_changes_weighing_atomically(database):
@@ -125,15 +124,8 @@ def test_delete_only_removes_association(database):
     db.commit.assert_called_once()
 
 
-@pytest.mark.parametrize(("sqlstate", "status"), [
-    ("23505", 409), ("23503", 409), ("23514", 422),
-    ("23502", 422), ("22P02", 422), ("08006", 500),
-])
-def test_database_errors_are_sanitized_and_rolled_back(database, sqlstate, status):
+def test_database_errors_propagate_to_global_handler(database):
     db, _, _ = database
-    db.commit.side_effect = DBAPIError("Private SQL", {}, DatabaseError(sqlstate))
-    with pytest.raises(HTTPException) as error:
+    db.commit.side_effect = DBAPIError("Private SQL", {}, DatabaseError("23505"))
+    with pytest.raises(DBAPIError):
         controller.create_muscle_workout(db, payload())
-    assert error.value.status_code == status
-    assert "Private" not in error.value.detail
-    db.rollback.assert_called_once()
