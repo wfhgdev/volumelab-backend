@@ -146,9 +146,11 @@ def test_invalid_and_unknown_identifiers(muscle_group_api, method, identifier, s
 
 
 def test_anonymized_group_can_be_read_and_updated(muscle_group_api):
-    client, db, _ = muscle_group_api
-    record = MuscleGroupModel(name="Chest", created_by=None)
+    client, db, admin = muscle_group_api
+    record = MuscleGroupModel(name="Chest", created_by=admin.id)
     db.add(record)
+    db.commit()
+    record.created_by = None
     db.commit()
     resource = f"/muscle-groups/{record.id}"
     assert client.get(resource).json()["created_by"] is None

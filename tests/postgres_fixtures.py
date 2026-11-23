@@ -34,8 +34,6 @@ def postgres_database_factory(request):
     def isolated_database():
         database_name = f"volumelab_workout_test_{uuid4().hex[:12]}"
         if not re.fullmatch(r"volumelab_workout_test_[0-9a-f]{12}", database_name):
-        database_name = f"volumelab_test_{uuid4().hex[:12]}"
-        if not re.fullmatch(r"volumelab_test_[0-9a-f]{12}", database_name):
             raise ValueError("Invalid isolated database name")
         quoted_name = admin.dialect.identifier_preparer.quote(database_name)
         with admin.connect() as connection:

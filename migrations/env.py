@@ -16,6 +16,7 @@ from app.models import workout_session_model
 from app.models import workout_model
 from app.models import muscle_group_model
 from app.models import muscle_workout_model
+from app.models import workout_set_model
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

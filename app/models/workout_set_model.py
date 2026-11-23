@@ -5,13 +5,11 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
-    Column,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     Numeric,
-    String,
-    Table,
     Text,
     UniqueConstraint,
 )
@@ -28,39 +26,6 @@ class WorkoutSetExerciseType(str, PythonEnum):
 class WorkoutSetSessionStatus(str, PythonEnum):
     ABIERTO = "ABIERTO"
     CERRADO = "CERRADO"
-
-
-if "workout_session" not in Base.metadata.tables:
-    workout_session_table = Table(
-        "workout_session",
-        Base.metadata,
-        Column("id", BigInteger, primary_key=True),
-        Column("current_bodyweight_kg", Numeric(6, 2)),
-        Column("status", String(10)),
-        extend_existing=True,
-    )
-else:
-    workout_session_table = Base.metadata.tables["workout_session"]
-    if "current_bodyweight_kg" not in workout_session_table.c:
-        workout_session_table.append_column(Column("current_bodyweight_kg", Numeric(6, 2)))
-    if "status" not in workout_session_table.c:
-        workout_session_table.append_column(Column("status", String(10)))
-
-if "workout" not in Base.metadata.tables:
-    workout_table = Table(
-        "workout",
-        Base.metadata,
-        Column("id", Integer, primary_key=True),
-        Column("is_bodyweight", Boolean, nullable=False),
-        Column("type", String(20), nullable=False),
-        extend_existing=True,
-    )
-else:
-    workout_table = Base.metadata.tables["workout"]
-    if "is_bodyweight" not in workout_table.c:
-        workout_table.append_column(Column("is_bodyweight", Boolean, nullable=False))
-    if "type" not in workout_table.c:
-        workout_table.append_column(Column("type", String(20), nullable=False))
 
 
 class WorkoutSetModel(Base):
@@ -80,11 +45,16 @@ class WorkoutSetModel(Base):
             "(reps IS NULL) <> (duration_second IS NULL)",
             name="chk_set_reps_xor_duration",
         ),
+        Index("idx_workout_set_session", "session_id"),
+        Index("idx_workout_set_exercise", "exercise_id"),
+        Index("idx_workout_set_exercise_session", "exercise_id", "session_id"),
         UniqueConstraint(
             "session_id",
             "exercise_order",
             "set_number",
             name="uq_workout_set_position",
+            deferrable=True,
+            initially="IMMEDIATE",
         ),
         {"extend_existing": True},
     )

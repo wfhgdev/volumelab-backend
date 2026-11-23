@@ -13,6 +13,10 @@ from app.models.workout_set_model import (
 from app.schemas.workout_set_schema import WorkoutSetCreate, WorkoutSetUpdate
 
 
+def _quantize(value: Decimal, quantum: str) -> Decimal:
+    return value.quantize(Decimal(quantum))
+
+
 def _get_session_bodyweight(db: Session, session_id: int) -> Decimal | None:
     row = db.execute(
         text(
@@ -31,16 +35,19 @@ def _get_session_bodyweight(db: Session, session_id: int) -> Decimal | None:
         session_status = session_status.value
     if str(session_status) == WorkoutSetSessionStatus.CERRADO.value:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_409_CONFLICT,
             detail=f"La sesión {session_id} está cerrada; sus series no se pueden modificar",
         )
     bodyweight = row["current_bodyweight_kg"]
     return Decimal(str(bodyweight)) if bodyweight is not None else None
 
 
-def _get_exercise_info(db: Session, exercise_id: int) -> tuple[bool, str]:
+def _get_exercise_info(db: Session, exercise_id: int) -> tuple[bool, str, bool, bool, bool]:
     row = db.execute(
-        text("SELECT is_bodyweight, type FROM workout WHERE id = :exercise_id"),
+        text(
+            "SELECT is_bodyweight, type, allow_positive_ballast, "
+            "allow_negative_ballast, state FROM workout WHERE id = :exercise_id"
+        ),
         {"exercise_id": exercise_id},
     ).mappings().first()
     if row is None:
@@ -48,10 +55,21 @@ def _get_exercise_info(db: Session, exercise_id: int) -> tuple[bool, str]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Ejercicio con id {exercise_id} no encontrado",
         )
+    if not bool(row["state"]):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"El ejercicio {exercise_id} está desactivado",
+        )
     exercise_type = row["type"]
     if isinstance(exercise_type, WorkoutSetExerciseType):
         exercise_type = exercise_type.value
-    return bool(row["is_bodyweight"]), str(exercise_type)
+    return (
+        bool(row["is_bodyweight"]),
+        str(exercise_type),
+        bool(row["allow_positive_ballast"]),
+        bool(row["allow_negative_ballast"]),
+        bool(row["state"]),
+    )
 
 
 def _validate_reps_duration(reps: int | None, duration_second: int | None) -> None:
@@ -59,6 +77,26 @@ def _validate_reps_duration(reps: int | None, duration_second: int | None) -> No
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Debe indicar exactamente uno de reps o duration_second",
+        )
+
+
+def _validate_ballast(
+    added_weight_kg: Decimal | None,
+    allow_positive: bool,
+    allow_negative: bool,
+) -> None:
+    if added_weight_kg is None:
+        return
+    value = Decimal(added_weight_kg)
+    if value > 0 and not allow_positive:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El ejercicio no permite lastre positivo",
+        )
+    if value < 0 and not allow_negative:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El ejercicio no permite asistencia o lastre negativo",
         )
 
 
@@ -105,7 +143,10 @@ def _calculate_values(
     rir: int | None,
 ) -> tuple[Decimal, Decimal | None, Decimal | None, Decimal | None]:
     bodyweight = _get_session_bodyweight(db, session_id)
-    is_bodyweight, exercise_type = _get_exercise_info(db, exercise_id)
+    is_bodyweight, exercise_type, allow_positive, allow_negative, _ = _get_exercise_info(
+        db, exercise_id
+    )
+    _validate_ballast(added_weight_kg, allow_positive, allow_negative)
     _validate_reps_duration(reps, duration_second)
 
     dynamic = WorkoutSetExerciseType.DINAMICO.value
@@ -123,16 +164,18 @@ def _calculate_values(
 
     effective = _effective_weight(bodyweight, is_bodyweight, added_weight_kg)
     if exercise_type == isometric:
-        return effective, None, None, None
+        volume_load = _quantize(effective * Decimal(duration_second), "0.001")
+        return effective, volume_load, None, None
 
     if rir is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="rir es obligatorio en series dinámicas para calcular el 1RM",
         )
-    volume_load = effective * Decimal(reps)
-    one_rm_kg = effective * (Decimal("1") + (Decimal(reps + rir) / Decimal("30")))
-    one_rm_percentage = (effective / one_rm_kg) * Decimal("100")
+    raw_one_rm = effective * (Decimal("1") + (Decimal(reps + rir) / Decimal("30")))
+    volume_load = _quantize(effective * Decimal(reps), "0.001")
+    one_rm_kg = _quantize(raw_one_rm, "0.01")
+    one_rm_percentage = _quantize((effective / raw_one_rm) * Decimal("100"), "0.01")
     return effective, volume_load, one_rm_kg, one_rm_percentage
 
 
@@ -170,9 +213,14 @@ def _raise_dbapi_error(exc: DBAPIError) -> None:
     original = getattr(exc, "orig", None)
     message = str(original) if original is not None else str(exc)
     lowered = message.lower()
+    if "ya tiene otro ejercicio" in lowered:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya existe otro ejercicio en esa posición de la sesión",
+        )
     if "rn-07" in lowered or "cerrada" in lowered:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_409_CONFLICT,
             detail=message,
         )
     if "rn-04" in lowered or "rn-10" in lowered or "rn-12" in lowered:
@@ -267,6 +315,7 @@ def update_workout_set(
     db: Session, workout_set_id: int, payload: WorkoutSetUpdate
 ) -> WorkoutSetModel:
     record = get_workout_set(db, workout_set_id)
+    _get_session_bodyweight(db, record.session_id)
     calculated_fields = {
         "effective_weight_kg",
         "volume_load",
