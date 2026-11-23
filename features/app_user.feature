@@ -24,7 +24,7 @@ Feature: Gestión CRUD de usuarios
   Scenario: Listar usuarios existentes
     Given ya existe un usuario con el email "ana@example.com"
     When listo los usuarios
-    Then obtengo una lista con 1 usuario
+    Then la lista contiene el usuario con ese email
     And el estado HTTP es 200
 
   Scenario: Consultar un usuario existente

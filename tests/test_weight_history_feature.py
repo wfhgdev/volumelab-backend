@@ -1,117 +1,22 @@
-from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from fastapi.testclient import TestClient
 from pytest_bdd import given, parsers, scenario, then, when
+from sqlalchemy import text
 
-from app.core.database_connection import get_db
-from app.main import app
 from app.models.weight_history_model import WeightHistoryModel
 
 
-class _ScalarResult:
-    def __init__(self, row):
-        self._row = row
-
-    def first(self):
-        return self._row
-
-
-class _InMemoryWeightHistoryQuery:
-    def __init__(self, records: list[WeightHistoryModel]) -> None:
-        self._records = list(records)
-        self._offset = 0
-        self._limit: int | None = None
-
-    def filter(self, *criteria):
-        filtered = self._records
-        for criterion in criteria:
-            left = getattr(criterion, "left", None)
-            right = getattr(criterion, "right", None)
-            col_name = getattr(left, "name", None)
-            value = getattr(right, "value", None)
-            if col_name is not None:
-                filtered = [
-                    r for r in filtered if getattr(r, col_name) == value
-                ]
-        self._records = filtered
-        return self
-
-    def order_by(self, *clauses):
-        self._records.sort(
-            key=lambda r: (r.created_at, r.id),
-            reverse=True,
-        )
-        return self
-
-    def offset(self, skip: int):
-        self._offset = skip
-        return self
-
-    def limit(self, limit: int):
-        self._limit = limit
-        return self
-
-    def all(self) -> list[WeightHistoryModel]:
-        end = None if self._limit is None else self._offset + self._limit
-        return self._records[self._offset:end]
-
-    def first(self) -> WeightHistoryModel | None:
-        return self._records[0] if self._records else None
-
-
-class InMemoryWeightHistoryDB:
-    """Sesión SQLAlchemy simulada en memoria para pruebas BDD contra FastAPI."""
-
-    def __init__(self) -> None:
-        self.user_ids: set[int] = set()
-        self.records: list[WeightHistoryModel] = []
-        self._next_id = 1
-        self._base_time = datetime(2026, 11, 20, 10, 0, 0, tzinfo=timezone.utc).replace(tzinfo=None)
-
-    def execute(self, statement, params=None):
-        user_id = (params or {}).get("user_id")
-        if user_id in self.user_ids:
-            return _ScalarResult((1,))
-        return _ScalarResult(None)
-
-    def add(self, record: WeightHistoryModel) -> None:
-        if getattr(record, "id", None) is None:
-            record.id = self._next_id
-            self._next_id += 1
-        if getattr(record, "created_at", None) is None:
-            record.created_at = self._base_time + timedelta(minutes=record.id)
-        self.records.append(record)
-
-    def commit(self) -> None:
-        pass
-
-    def refresh(self, record: WeightHistoryModel) -> None:
-        pass
-
-    def delete(self, record: WeightHistoryModel) -> None:
-        self.records = [r for r in self.records if r.id != record.id]
-
-    def query(self, model):
-        assert model is WeightHistoryModel
-        return _InMemoryWeightHistoryQuery(self.records)
-
-
 @pytest.fixture
-def bdd_context():
-    db = InMemoryWeightHistoryDB()
-
-    def override_get_db():
-        yield db
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    context = {"db": db, "client": client, "response": None, "record_id": None}
-    try:
-        yield context
-    finally:
-        app.dependency_overrides.clear()
+def bdd_context(client, db_session):
+    return {
+        "db": db_session,
+        "client": client,
+        "response": None,
+        "record_id": None,
+        "last_user_id": None,
+        "list_user_id": None,
+    }
 
 
 @scenario("../features/weight_history.feature", "Crear un registro de peso válido")
@@ -173,32 +78,76 @@ def test_delete_missing_weight_history():
     pass
 
 
+def ensure_user_exists(db_session, user_id: int) -> None:
+    db_session.execute(
+        text(
+            """
+            INSERT INTO app_user (
+                id,
+                email,
+                password_hash,
+                name,
+                role,
+                status
+            )
+            OVERRIDING SYSTEM VALUE
+            VALUES (
+                :id,
+                :email,
+                'hash',
+                'BDD User',
+                'CLIENTE',
+                'ACTIVO'
+            )
+            ON CONFLICT (id) DO NOTHING
+            """
+        ),
+        {"id": user_id, "email": f"bdd_weight_user_{user_id}@example.com"},
+    )
+    db_session.commit()
+
+
+def remove_user_by_id(db_session, user_id: int) -> None:
+    db_session.execute(
+        text("DELETE FROM app_user WHERE id = :id"),
+        {"id": user_id},
+    )
+    db_session.commit()
+
+
 @given(parsers.parse("existe el usuario con identificador {user_id:d}"))
 def existing_user(bdd_context, user_id):
-    bdd_context["db"].user_ids.add(user_id)
+    ensure_user_exists(bdd_context["db"], user_id)
 
 
 @given(parsers.parse("no existe el usuario con identificador {user_id:d}"))
 def missing_user(bdd_context, user_id):
-    bdd_context["db"].user_ids.discard(user_id)
+    remove_user_by_id(bdd_context["db"], user_id)
 
 
 @given(parsers.parse("ya existe un registro de peso de {weight} kg para el usuario {user_id:d}"))
 def existing_weight_record(bdd_context, weight, user_id):
-    bdd_context["db"].user_ids.add(user_id)
+    db = bdd_context["db"]
+    ensure_user_exists(db, user_id)
+    db.query(WeightHistoryModel).filter(WeightHistoryModel.user_id == user_id).delete()
     record = WeightHistoryModel(
         user_id=user_id,
         weight_kg=Decimal(weight),
     )
-    bdd_context["db"].add(record)
+    db.add(record)
+    db.commit()
+    db.refresh(record)
     bdd_context["record_id"] = record.id
+    bdd_context["last_user_id"] = user_id
 
 
 @given(parsers.parse("no existe el registro de peso con identificador {record_id:d}"))
 def missing_weight_record(bdd_context, record_id):
-    bdd_context["db"].records = [
-        r for r in bdd_context["db"].records if r.id != record_id
-    ]
+    db = bdd_context["db"]
+    record = db.get(WeightHistoryModel, record_id)
+    if record is not None:
+        db.delete(record)
+        db.commit()
 
 
 @when(parsers.parse("registro un peso de {weight} kg para el usuario {user_id:d}"))
@@ -211,13 +160,15 @@ def create_weight_record(bdd_context, weight, user_id):
 
 @when("listo los registros de peso")
 def list_all_weight_records(bdd_context):
-    bdd_context["response"] = bdd_context["client"].get("/weight-history/")
+    bdd_context["list_user_id"] = bdd_context["last_user_id"]
+    bdd_context["response"] = bdd_context["client"].get("/weight-history/?limit=500")
 
 
 @when(parsers.parse("listo los registros de peso del usuario {user_id:d}"))
 def list_user_weight_records(bdd_context, user_id):
+    bdd_context["list_user_id"] = user_id
     bdd_context["response"] = bdd_context["client"].get(
-        f"/weight-history/?user_id={user_id}"
+        f"/weight-history/?user_id={user_id}&limit=500"
     )
 
 
@@ -274,9 +225,14 @@ def validation_error(bdd_context):
     assert "detail" in bdd_context["response"].json()
 
 
-@then(parsers.parse("obtengo una lista con {count:d} registro de peso"))
-def list_has_count(bdd_context, count):
-    assert len(bdd_context["response"].json()) == count
+@then(
+    parsers.parse(
+        "obtengo una lista con {count:d} registro de peso para el usuario {user_id:d}"
+    )
+)
+def list_has_count(bdd_context, count, user_id):
+    body = bdd_context["response"].json()
+    assert sum(1 for item in body if item["user_id"] == user_id) == count
 
 
 @then(

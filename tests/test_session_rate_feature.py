@@ -1,131 +1,138 @@
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
 import pytest
-from fastapi.testclient import TestClient
 from pytest_bdd import given, parsers, scenario, then, when
+from sqlalchemy import text
 
-from app.core.database_connection import get_db
-from app.main import app
 from app.models.session_rate_model import SessionRateModel
 
 
-class InMemorySessionRateDB:
-    """Sesión simulada en memoria para pruebas BDD de session_rate contra FastAPI."""
-
-    def __init__(self) -> None:
-        self.rates: list[SessionRateModel] = []
-        self._next_id = 1
-        self.public_sessions: set[int] = {100}
-        self.private_sessions: set[int] = {101}
-
-    def add(self, item: SessionRateModel) -> None:
-        if getattr(item, "id", None) is None:
-            item.id = self._next_id
-            self._next_id += 1
-        if getattr(item, "created_at", None) is None:
-            item.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
-        self.rates.append(item)
-
-    def commit(self) -> None:
-        pass
-
-    def rollback(self) -> None:
-        pass
-
-    def refresh(self, item: SessionRateModel) -> None:
-        pass
-
-    def delete(self, item: SessionRateModel) -> None:
-        self.rates = [r for r in self.rates if r.id != item.id]
-
-    def query(self, *entities):
-        if len(entities) == 1 and entities[0] is SessionRateModel:
-            return _InMemorySessionRateQuery(self.rates)
-        return _InMemoryScoreQuery(self.rates)
-
-
-class _InMemorySessionRateQuery:
-    def __init__(self, rates: list[SessionRateModel]) -> None:
-        self._rates = list(rates)
-        self._offset = 0
-        self._limit: int | None = None
-
-    def filter(self, *criteria):
-        filtered = self._rates
-        for criterion in criteria:
-            left = getattr(criterion, "left", None)
-            right = getattr(criterion, "right", None)
-            operator = getattr(criterion, "operator", None)
-            right_val = getattr(right, "value", None)
-            left_str = str(left).lower()
-            op_name = getattr(operator, "__name__", "")
-
-            if left_str.endswith(".id") and op_name == "eq":
-                filtered = [r for r in filtered if r.id == right_val]
-            elif "id_workout_session" in left_str and op_name == "eq":
-                filtered = [r for r in filtered if r.id_workout_session == right_val]
-            elif "user_id" in left_str and op_name == "eq":
-                filtered = [r for r in filtered if r.user_id == right_val]
-        self._rates = filtered
-        return self
-
-    def order_by(self, *clauses):
-        return self
-
-    def offset(self, skip: int):
-        self._offset = skip
-        return self
-
-    def limit(self, limit: int):
-        self._limit = limit
-        return self
-
-    def first(self):
-        return self._rates[0] if self._rates else None
-
-    def all(self):
-        end = None if self._limit is None else self._offset + self._limit
-        return self._rates[self._offset : end]
-
-
-class _InMemoryScoreQuery:
-    def __init__(self, rates: list[SessionRateModel]) -> None:
-        self._rates = rates
-
-    def filter(self, *criteria):
-        filtered = self._rates
-        for criterion in criteria:
-            right = getattr(criterion, "right", None)
-            right_val = getattr(right, "value", None)
-            if right_val is not None:
-                filtered = [r for r in filtered if r.id_workout_session == right_val]
-        self._rates = filtered
-        return self
-
-    def one(self):
-        total = len(self._rates)
-        avg = round(sum(r.rate for r in self._rates) / total, 2) if total > 0 else 0.0
-        mock_res = type("ScoreResult", (), {"avg_rate": avg, "total_rates": total})()
-        return mock_res
-
-
 @pytest.fixture
-def bdd_context():
-    fake_db = InMemorySessionRateDB()
-
-    def override_get_db():
-        yield fake_db
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app, raise_server_exceptions=True)
-    ctx = {"client": client, "db": fake_db, "response": None}
-    try:
-        yield ctx
-    finally:
-        app.dependency_overrides.clear()
+def bdd_context(client, db_session):
+    return {"client": client, "db": db_session, "response": None}
 
 
-# Scenarios
+def ensure_user(db_session, user_id: int) -> None:
+    db_session.execute(
+        text(
+            """
+            INSERT INTO app_user (
+                id,
+                email,
+                password_hash,
+                name,
+                role,
+                status
+            )
+            OVERRIDING SYSTEM VALUE
+            VALUES (
+                :id,
+                :email,
+                'hash',
+                'BDD Rate',
+                'CLIENTE',
+                'ACTIVO'
+            )
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {"id": user_id, "email": f"bdd_rate_user_{user_id}@example.com"},
+    )
+    db_session.commit()
+
+
+def ensure_session(db_session, session_id: int, public: bool) -> None:
+    db_session.execute(
+        text(
+            """
+            INSERT INTO workout_session (
+                id,
+                user_id,
+                title,
+                session_date,
+                current_bodyweight_kg,
+                public,
+                status
+            )
+            OVERRIDING SYSTEM VALUE
+            VALUES (
+                :id,
+                1,
+                'BDD Session',
+                DATE '2026-01-01',
+                70.0,
+                :public,
+                'ABIERTO'
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                user_id = EXCLUDED.user_id,
+                public = EXCLUDED.public,
+                status = 'ABIERTO',
+                closed_at = NULL
+            """
+        ),
+        {"id": session_id, "public": public},
+    )
+    db_session.commit()
+
+
+def delete_rates_for_pair(db_session, session_id: int, user_id: int) -> None:
+    db_session.query(SessionRateModel).filter(
+        SessionRateModel.id_workout_session == session_id,
+        SessionRateModel.user_id == user_id,
+    ).delete(synchronize_session=False)
+    db_session.commit()
+
+
+def delete_rates_for_session(db_session, session_id: int) -> None:
+    db_session.query(SessionRateModel).filter(
+        SessionRateModel.id_workout_session == session_id
+    ).delete(synchronize_session=False)
+    db_session.commit()
+
+
+def delete_rate_by_id(db_session, rate_id: int) -> None:
+    db_session.query(SessionRateModel).filter(
+        SessionRateModel.id == rate_id
+    ).delete(synchronize_session=False)
+    db_session.commit()
+
+
+def insert_rate(db_session, session_id: int, user_id: int, rate: int, rate_id: int | None = None):
+    if rate_id is None:
+        record = SessionRateModel(
+            id_workout_session=session_id,
+            user_id=user_id,
+            rate=rate,
+        )
+        db_session.add(record)
+    else:
+        db_session.execute(
+            text(
+                """
+                INSERT INTO session_rate (
+                    id,
+                    id_workout_session,
+                    user_id,
+                    rate
+                )
+                OVERRIDING SYSTEM VALUE
+                VALUES (
+                    :id,
+                    :session_id,
+                    :user_id,
+                    :rate
+                )
+                """
+            ),
+            {
+                "id": rate_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "rate": rate,
+            },
+        )
+    db_session.commit()
+
+
 @scenario("../features/session_rate.feature", "Crear una valoración válida para una sesión pública")
 def test_create_valid_rate():
     pass
@@ -186,78 +193,59 @@ def test_delete_rate_not_found():
     pass
 
 
-# Steps
 @given(parsers.parse("existe una sesión pública con id {session_id:d}"))
 def step_public_session(bdd_context, session_id):
-    bdd_context["db"].public_sessions.add(session_id)
+    ensure_user(bdd_context["db"], 1)
+    ensure_session(bdd_context["db"], session_id, public=True)
 
 
 @given(parsers.parse("existe una sesión privada con id {session_id:d}"))
 def step_private_session(bdd_context, session_id):
-    bdd_context["db"].private_sessions.add(session_id)
+    ensure_user(bdd_context["db"], 1)
+    ensure_session(bdd_context["db"], session_id, public=False)
 
 
 @given(parsers.parse("no existe una valoración del usuario {user_id:d} para la sesión {session_id:d}"))
 def step_no_rate_exists(bdd_context, user_id, session_id):
-    bdd_context["db"].rates = [
-        r for r in bdd_context["db"].rates
-        if not (r.id_workout_session == session_id and r.user_id == user_id)
-    ]
+    delete_rates_for_pair(bdd_context["db"], session_id, user_id)
 
 
 @given(parsers.parse("ya existe una valoración del usuario {user_id:d} para la sesión {session_id:d}"))
 def step_rate_exists(bdd_context, user_id, session_id):
-    existing = [r for r in bdd_context["db"].rates if r.id_workout_session == session_id and r.user_id == user_id]
-    if not existing:
-        rate = SessionRateModel(
-            id=bdd_context["db"]._next_id,
-            id_workout_session=session_id,
-            user_id=user_id,
-            rate=5,
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        )
-        bdd_context["db"]._next_id += 1
-        bdd_context["db"].rates.append(rate)
+    db = bdd_context["db"]
+    ensure_user(db, user_id)
+    ensure_session(db, session_id, public=True)
+    delete_rates_for_pair(db, session_id, user_id)
+    insert_rate(db, session_id, user_id, 5)
 
 
 @given(parsers.parse("existe una valoración registrada con id {rate_id:d}"))
 def step_rate_with_id_exists(bdd_context, rate_id):
-    existing = [r for r in bdd_context["db"].rates if r.id == rate_id]
-    if not existing:
-        rate = SessionRateModel(
-            id=rate_id,
-            id_workout_session=100,
-            user_id=1,
-            rate=5,
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        )
-        bdd_context["db"].rates.append(rate)
+    db = bdd_context["db"]
+    ensure_user(db, 1)
+    ensure_session(db, 100, public=True)
+    delete_rate_by_id(db, rate_id)
+    delete_rates_for_pair(db, 100, 1)
+    insert_rate(db, 100, 1, 5, rate_id=rate_id)
 
 
 @given(parsers.parse("no existe ninguna valoración con id {rate_id:d}"))
 def step_no_rate_with_id(bdd_context, rate_id):
-    bdd_context["db"].rates = [r for r in bdd_context["db"].rates if r.id != rate_id]
+    delete_rate_by_id(bdd_context["db"], rate_id)
 
 
 @given(parsers.parse("la sesión {session_id:d} tiene valoraciones registradas"))
 def step_session_has_rates(bdd_context, session_id):
-    if not any(r.id_workout_session == session_id for r in bdd_context["db"].rates):
-        bdd_context["db"].rates.append(
-            SessionRateModel(
-                id=bdd_context["db"]._next_id,
-                id_workout_session=session_id,
-                user_id=1,
-                rate=4,
-                created_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            )
-        )
-        bdd_context["db"]._next_id += 1
+    db = bdd_context["db"]
+    ensure_user(db, 1)
+    ensure_session(db, session_id, public=True)
+    delete_rates_for_session(db, session_id)
+    insert_rate(db, session_id, 1, 4)
 
 
 @when(parsers.parse("creo la valoración con puntuación {rate:d} para la sesión {session_id:d} y usuario {user_id:d}"))
 def step_when_create_rate(bdd_context, rate, session_id, user_id):
-    client = bdd_context["client"]
-    bdd_context["response"] = client.post(
+    bdd_context["response"] = bdd_context["client"].post(
         "/session-rates/",
         json={"id_workout_session": session_id, "user_id": user_id, "rate": rate},
     )
@@ -265,25 +253,15 @@ def step_when_create_rate(bdd_context, rate, session_id, user_id):
 
 @when(parsers.parse("intento valorar la sesión {session_id:d} con puntuación {rate:d} para el usuario {user_id:d}"))
 def step_when_try_private_rate(bdd_context, rate, session_id, user_id):
-    client = bdd_context["client"]
-    # Mock behavior of private session trigger
-    from sqlalchemy.exc import DBAPIError
-    orig_commit = bdd_context["db"].commit
-    bdd_context["db"].commit = MagicMock(side_effect=DBAPIError(
-        "INSERT", {}, Exception(f"La sesión {session_id} no es pública y no se puede valorar")
-    ))
-    try:
-        bdd_context["response"] = client.post(
-            "/session-rates/",
-            json={"id_workout_session": session_id, "user_id": user_id, "rate": rate},
-        )
-    finally:
-        bdd_context["db"].commit = orig_commit
+    bdd_context["response"] = bdd_context["client"].post(
+        "/session-rates/",
+        json={"id_workout_session": session_id, "user_id": user_id, "rate": rate},
+    )
 
 
 @when("listo las valoraciones de sesiones")
 def step_when_list(bdd_context):
-    bdd_context["response"] = bdd_context["client"].get("/session-rates/")
+    bdd_context["response"] = bdd_context["client"].get("/session-rates/?limit=500")
 
 
 @when(parsers.parse("consulto la valoración con id {rate_id:d}"))
