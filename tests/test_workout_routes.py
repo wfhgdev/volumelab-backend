@@ -1,10 +1,10 @@
+import pytest
+from sqlalchemy import text
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
-
 from app.core.database_connection import get_db
 from app.main import app
 from app.models.app_user_model import AppUserModel

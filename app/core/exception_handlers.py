@@ -22,6 +22,11 @@ async def integrity_error_handler(request: Request, exc: Exception) -> JSONRespo
                 status_code=409,
                 content={"detail": "Ya existe un ejercicio con este nombre"},
             )
+        if "muscle_workout" in lowered or constraint == "pk_muscle_workout":
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "Ya existe una asociación entre este ejercicio y este grupo muscular"},
+            )
         return JSONResponse(
             status_code=409,
             content={"detail": "Conflicto de integridad: el registro ya existe"},
