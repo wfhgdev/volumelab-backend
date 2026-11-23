@@ -25,7 +25,7 @@ Feature: Gestión CRUD del histórico de peso corporal
     Given existe el usuario con identificador 1
     And ya existe un registro de peso de 78.25 kg para el usuario 1
     When listo los registros de peso
-    Then obtengo una lista con 1 registro de peso
+    Then obtengo una lista con 1 registro de peso para el usuario 1
     And el estado HTTP es 200
 
   Scenario: Listar registros de peso filtrados por usuario
@@ -34,7 +34,7 @@ Feature: Gestión CRUD del histórico de peso corporal
     And ya existe un registro de peso de 78.25 kg para el usuario 1
     And ya existe un registro de peso de 64.00 kg para el usuario 2
     When listo los registros de peso del usuario 1
-    Then obtengo una lista con 1 registro de peso
+    Then obtengo una lista con 1 registro de peso para el usuario 1
     And el estado HTTP es 200
 
   Scenario: Consultar un registro de peso existente

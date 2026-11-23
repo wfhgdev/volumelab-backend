@@ -1,5 +1,4 @@
-from datetime import date
-from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -11,125 +10,108 @@ from app.controllers.app_user_controller import (
     list_app_users,
     update_app_user,
 )
-from app.models.app_user_model import AppUserModel
 from app.schemas.app_user_schema import AppUserCreate, AppUserUpdate
 
 
-def make_user(user_id: int = 1, email: str = "ana@example.com") -> AppUserModel:
-    return AppUserModel(
-        id=user_id,
-        name="Ana",
-        lastname="Lopez",
-        email=email,
-        password_hash="hash",
-        birth_date=date(1990, 1, 1),
-        gender="PREFIERO NO DECIR",
-        height_cm=170,
-        role="CLIENTE",
-        status="ACTIVO",
+def create_sample_user(
+    db_session,
+    email: str | None = None,
+    name: str = "Ana",
+) -> object:
+    return create_app_user(
+        db_session,
+        AppUserCreate(
+            name=name,
+            email=email or f"app_user_{uuid4().hex}@example.com",
+            password_hash="hash",
+        ),
     )
 
 
-def test_create_app_user_commits():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
-    payload = AppUserCreate(
-        name="Ana",
-        email="Ana@Example.com",
-        password_hash="hash",
+def test_create_app_user_persists_and_normalizes_email(db_session):
+    email = f"app_user_{uuid4().hex}@Example.com"
+
+    result = create_app_user(
+        db_session,
+        AppUserCreate(name="Ana", email=email, password_hash="hash"),
     )
 
-    result = create_app_user(db, payload)
-
-    db.add.assert_called_once()
-    db.commit.assert_called_once()
-    db.refresh.assert_called_once()
-    assert result.email == "ana@example.com"
+    assert result.id >= 1
+    assert result.email == email.lower()
+    assert get_app_user(db_session, result.id).id == result.id
 
 
-def test_create_app_user_rejects_duplicate_email():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = make_user()
-    payload = AppUserCreate(name="Ana", email="ana@example.com", password_hash="hash")
+def test_create_app_user_rejects_duplicate_email(db_session):
+    email = f"app_user_{uuid4().hex}@example.com"
+    create_sample_user(db_session, email=email)
 
     with pytest.raises(HTTPException) as exc:
-        create_app_user(db, payload)
+        create_sample_user(db_session, email=email.upper())
 
     assert exc.value.status_code == 409
+    assert "email" in exc.value.detail.lower()
 
 
-def test_get_app_user_returns_not_found():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
-
+def test_get_app_user_returns_not_found(db_session):
     with pytest.raises(HTTPException) as exc:
-        get_app_user(db, 99)
+        get_app_user(db_session, 2_000_000_000)
 
     assert exc.value.status_code == 404
 
 
-def test_list_app_users_applies_pagination():
-    db = MagicMock()
-    db.query.return_value.offset.return_value.limit.return_value.all.return_value = [make_user()]
+def test_list_app_users_applies_pagination(db_session):
+    first = create_sample_user(db_session)
+    second = create_sample_user(db_session)
 
-    result = list_app_users(db, 5, 10)
+    result = list_app_users(db_session, 0, 500)
 
-    assert len(result) == 1
-    assert result[0].id == 1
-    db.query.return_value.offset.assert_called_once_with(5)
-    db.query.return_value.offset.return_value.limit.assert_called_once_with(10)
+    ids = {user.id for user in result}
+    assert first.id in ids
+    assert second.id in ids
+    assert len(list_app_users(db_session, 0, 1)) == 1
 
 
-def test_update_app_user_changes_fields():
-    db = MagicMock()
-    user = make_user()
-    db.query.return_value.filter.return_value.first.return_value = user
+def test_update_app_user_changes_fields(db_session):
+    user = create_sample_user(db_session)
 
-    result = update_app_user(db, 1, AppUserUpdate(name="Lucia", status="BLOQUEADO"))
+    result = update_app_user(
+        db_session, user.id, AppUserUpdate(name="Lucia", status="BLOQUEADO")
+    )
 
     assert result.name == "Lucia"
     assert result.status == "BLOQUEADO"
-    db.commit.assert_called_once()
+    assert get_app_user(db_session, user.id).name == "Lucia"
 
 
-def test_update_app_user_rejects_duplicate_email():
-    db = MagicMock()
-    user = make_user(user_id=1, email="ana@example.com")
-    other = make_user(user_id=2, email="otro@example.com")
-    db.query.return_value.filter.return_value.first.side_effect = [user, other]
+def test_update_app_user_rejects_duplicate_email(db_session):
+    first = create_sample_user(db_session)
+    second = create_sample_user(db_session)
 
     with pytest.raises(HTTPException) as exc:
-        update_app_user(db, 1, AppUserUpdate(email="otro@example.com"))
+        update_app_user(db_session, first.id, AppUserUpdate(email=second.email.upper()))
 
     assert exc.value.status_code == 409
 
 
-def test_update_app_user_returns_not_found():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
-
+def test_update_app_user_returns_not_found(db_session):
     with pytest.raises(HTTPException) as exc:
-        update_app_user(db, 99, AppUserUpdate(name="Lucia"))
+        update_app_user(db_session, 2_000_000_000, AppUserUpdate(name="Lucia"))
 
     assert exc.value.status_code == 404
 
 
-def test_delete_app_user_removes_and_commits():
-    db = MagicMock()
-    user = make_user()
-    db.query.return_value.filter.return_value.first.return_value = user
+def test_delete_app_user_removes_and_commits(db_session):
+    user = create_sample_user(db_session)
 
-    delete_app_user(db, 1)
-
-    db.delete.assert_called_once_with(user)
-    db.commit.assert_called_once()
-
-
-def test_delete_app_user_returns_not_found():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
+    delete_app_user(db_session, user.id)
 
     with pytest.raises(HTTPException) as exc:
-        delete_app_user(db, 99)
+        get_app_user(db_session, user.id)
+    assert exc.value.status_code == 404
+
+
+def test_delete_app_user_returns_not_found(db_session):
+    with pytest.raises(HTTPException) as exc:
+        delete_app_user(db_session, 2_000_000_000)
 
     assert exc.value.status_code == 404
