@@ -28,9 +28,11 @@ Este repositorio centraliza la autenticación y autorización por roles, la gest
    - [Vistas SQL](#vistas-sql)
    - [Triggers de integridad y negocio](#triggers-de-integridad-y-negocio)
 8. [Cumplimiento RGPD y auditoría](#cumplimiento-rgpd-y-auditor%C3%ADa)
-9. [Estructura recomendada del repositorio](#estructura-recomendada-del-repositorio)
-10. [Instalación, migraciones y ejecución local](#instalaci%C3%B3n-migraciones-y-ejecuci%C3%B3n-local)
-11. [Equipo](#equipo)
+9. [Estructura del repositorio](#estructura-del-repositorio)
+10. [Manejo global de errores HTTP](#manejo-global-de-errores-http)
+11. [Catálogo de entidades y endpoints API (CRUD)](#cat%C3%A1logo-de-entidades-y-endpoints-api-crud)
+12. [Instalación, migraciones y ejecución local](#instalaci%C3%B3n-migraciones-y-ejecuci%C3%B3n-local)
+13. [Equipo](#equipo)
 
 ---
 
@@ -295,29 +297,72 @@ erDiagram
 
 ---
 
-## Estructura recomendada del repositorio
+## Estructura del repositorio
 
 ```text
 volumelab-backend/
-├── alembic/
-│   ├── versions/               # Migraciones (tablas, ENUMs, vistas SQL y triggers PL/pgSQL)
-│   └── env.py
 ├── app/
-│   ├── api/                    # Routers FastAPI y dependencias (auth, roles, DB session)
-│   ├── core/                   # Configuración (.env), seguridad (JWT/hashing), handlers de error
-│   ├── db/                     # Engine/Session de SQLAlchemy y Base declarativa
-│   ├── models/                 # Modelos ORM (app_user, workout, workout_session, workout_set...)
-│   ├── schemas/                # Esquemas Pydantic v2 (request/response y validaciones RN-08/09/15)
-│   ├── services/               # Lógica de negocio, motor de cálculo (1RM, volumen, PRs), exportación y auditoría
-│   └── main.py                 # Punto de entrada de la aplicación FastAPI
+│   ├── api/                    # Routers FastAPI para cada una de las 12 entidades
+│   ├── controllers/            # Controladores con lógica de negocio y operaciones de BD
+│   ├── core/                   # Configuración (.env), conexión BD y manejadores globales de error
+│   ├── models/                 # Modelos ORM SQLAlchemy 2.0 (12 entidades)
+│   ├── schemas/                # Esquemas Pydantic v2 (DTOs request/response con validaciones)
+│   └── main.py                 # Instancia de FastAPI, registro de routers y handlers de error
 ├── db/
-│   └── volumelab_20-11-2026_v4.sql   # Script SQL de referencia del esquema v4
-├── tests/                      # Tests unitarios y de integración (pytest)
-├── alembic.ini
-├── requirements.txt            # o pyproject.toml
-├── .env.example
+│   └── volumelab_20-11-2026_v4.sql   # Script SQL canónico de referencia del esquema v4
+├── features/                   # Escenarios de especificación BDD en Gherkin (.feature)
+├── migrations/                 # Migraciones de Alembic (versions/, env.py, script.py.mako)
+├── tests/                      # Suite de pruebas automatizadas (unitarias, integración y BDD)
+│   └── features/               # Escenarios BDD adicionales
+├── alembic.ini                 # Configuración de migraciones Alembic
+├── requirements.txt            # Dependencias del proyecto
+├── .env.example                # Variables de entorno de referencia
 └── README.md
 ```
+
+---
+
+## Manejo global de errores HTTP
+
+El backend implementa una arquitectura centralizada y DRY para la traducción de excepciones de base de datos a códigos de estado y respuestas HTTP estructuradas mediante interceptores globales en [app/core/exception_handlers.py](file:///c:/Github/VolumeLab_backend/app/core/exception_handlers.py):
+
+- **`IntegrityError` (Violaciones de Integridad Referencial y Restricciones):**
+  - **`23505` (Violación de unicidad / `UniqueViolation`):** Retorna `409 Conflict` (ej. nombres duplicados en `workout` y `muscle_group`, duplicados en `muscle_workout` o email en `app_user`).
+  - **`23503` / `23001` (Violación de clave foránea / `ForeignKeyViolation`):** Retorna `409 Conflict` ante eliminaciones bloqueadas por `ON DELETE RESTRICT` (ej. borrar un ejercicio con series o un grupo muscular asociado).
+  - **`23514` (Violación de restricción `CHECK`):** Retorna `422 Unprocessable Entity` ante valores fuera de rango de dominio o combinaciones incompatibles.
+  - **`23502` (Violación de `NOT NULL`):** Retorna `422 Unprocessable Entity` cuando se omiten campos obligatorios.
+
+- **`DBAPIError` (Triggers PL/pgSQL y Tipos de Datos):**
+  - **`22P02` (Tipo de dato o enumerado inválido):** Retorna `422 Unprocessable Entity`.
+  - **`P0001` (Excepciones emitidas por triggers PL/pgSQL):**
+    - `trg_muscle_group_admin_only`: Retorna `403 Forbidden` si un usuario no administrador intenta crear o reasignar un grupo muscular (**RN-17**).
+    - `trg_workout_client_limit` y `trg_session_client_limit`: Retorna `409 Conflict` si un cliente intenta superar la cuota máxima de 20 recursos públicos (**RN-17**).
+    - `trg_workout_set_session_open`: Retorna `409 Conflict` si se intenta insertar, modificar o borrar series en una sesión cerrada (**RN-07**).
+    - `trg_workout_set_check_type`: Retorna `422 Unprocessable Entity` si no se cumplen las reglas de duración en isométricos o repeticiones en dinámicos (**RN-04**, **RN-10**, **RN-12**).
+
+- **`HTTPException` en Controladores:**
+  - Reservadas exclusivamente para validaciones lógicas previas de negocio (ej. comprobaciones de estado antes de operar) y recursos no encontrados (`404 Not Found`).
+
+---
+
+## Catálogo de entidades y endpoints API (CRUD)
+
+Todas las entidades del sistema cuentan con su ciclo de vida CRUD estandarizado y uniforme a través de FastAPI, SQLAlchemy 2.0 y Pydantic v2:
+
+| Entidad | Prefijo de Ruta | Métodos REST Soportados | Descripción y Reglas Clave |
+| --- | --- | --- | --- |
+| **`app_user`** | `/app-users/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Cuentas, roles (`ADMIN`, `CLIENTE`) y estados (`ACTIVO`, `BLOQUEADO`). El borrado físico ejecuta el derecho de supresión RGPD (Art. 17). |
+| **`weight_history`** | `/weight-history/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Histórico cronológico de peso corporal del usuario. Fija la instantánea en cada sesión de entrenamiento. |
+| **`mesocycle`** | `/mesocycles/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Planificación de bloques macro con control de estados (`PLANIFICADO`, `ACTIVO`, `FINALIZADO`). |
+| **`training_week`** | `/training-weeks/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Semanas numeradas (`week_order`) contenidas en un mesociclo. Al eliminarse desvincula sesiones sin borrarlas (`SET NULL`). |
+| **`workout_session`** | `/workout-sessions/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Sesiones de entrenamiento. Control de apertura/cierre (`ABIERTO`, `CERRADO`), snapshot de peso y máx. 20 públicas para clientes. |
+| **`workout`** | `/workouts/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Catálogo de ejercicios (dinámicos e isométricos). Desactivación lógica (`state = false`) para proteger series históricas. |
+| **`muscle_group`** | `/muscle-groups/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Catálogo maestro de grupos musculares. Creación exclusiva por `ADMIN`. Borrado físico protegido frente a asociaciones existentes. |
+| **`muscle_workout`** | `/muscle-workouts/` | `POST`, `GET`, `GET /{workout_id}/{muscle_group_id}`, `PUT`, `DELETE` | Asociación N:M con clave compuesta. Ponderación automática (`PRIMARIO`: 100, `SECUNDARIO`: 50, `TERCIARIO`: 10). Bloquea cambios si el ejercicio ya tiene series. |
+| **`workout_set`** | `/workout-sets/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | **1 fila = 1 serie.** Motor de cálculo de peso efectivo, 1RM, %1RM y volumen. Bloqueado si la sesión está en estado `CERRADO`. |
+| **`workout_rate`** | `/workout-rates/` | `POST`, `POST /upsert`, `GET`, `GET /{id}`, `GET /score`, `GET /user`, `PUT`, `DELETE` | Puntuaciones de 1 a 5 en ejercicios públicos y activos. Nota media y recuento dinámico expuestos vía vista SQL. |
+| **`session_rate`** | `/session-rates/` | `POST`, `POST /upsert`, `GET`, `GET /{id}`, `GET /score`, `GET /user`, `PUT`, `DELETE` | Puntuaciones de 1 a 5 en sesiones públicas. Nota media y recuento dinámico expuestos vía vista SQL. |
+| **`audit`** | `/audits/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Registro de trazabilidad y seguridad para operaciones críticas (`INSERT`, `UPDATE`, `DELETE`, `EXPORT`). |
 
 ---
 
@@ -326,303 +371,95 @@ volumelab-backend/
 ### 1. Requisitos previos
 
 - **Python 3.11+**
-- **PostgreSQL 14+** con soporte `UTF8` y locale `es-ES` (`LC_CTYPE = 'es-ES'`)
+- **PostgreSQL 14+** con codificación `UTF8` y configuración regional española (`LC_CTYPE = 'es-ES'`).
 
-### 2. Clonar el repositorio y crear el entorno virtual
+### 2. Clonar el repositorio y configurar el entorno virtual
 
 ```bash
 git clone <URL_DEL_REPOSITORIO_BACKEND>
 cd volumelab-backend
 
-python -m venv .venv
+# Crear el entorno virtual
+python -m venv env
 
-# Windows (PowerShell)
-.\.venv\Scripts\Activate.ps1
+# Activar en Windows (PowerShell)
+.\env\Scripts\Activate.ps1
 
-# Linux / macOS
-source .venv/bin/activate
+# Activar en Linux / macOS
+source env/bin/activate
 
+# Instalar dependencias
 pip install -r requirements.txt
 ```
 
-### 3. Variables de entorno
+### 3. Configuración de variables de entorno
 
-Copia `.env.example` a `.env` y ajusta las credenciales de tu entorno local:
+Crear un archivo `.env` en la raíz del proyecto a partir de `.env.example`:
 
 ```env
-# PostgreSQL
+# Conexión a la base de datos PostgreSQL
 DATABASE_URL=postgresql+psycopg://postgres:changeme@localhost:5432/volumelab
 
 # Seguridad / JWT
-SECRET_KEY=changeme-use-a-long-random-secret
+SECRET_KEY=clave_secreta_para_desarrollo_local
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 
-# Aplicación
+# Configuración de la aplicación
+APP_NAME=VolumeLab Backend
+APP_VERSION=1.0.0
+APP_DESCRIPTION=API REST para VolumeLab
 APP_ENV=development
 APP_HOST=0.0.0.0
 APP_PORT=8000
 ```
 
-### 4. Inicialización de la base de datos y migraciones (Alembic)
+### 4. Migraciones de la base de datos (Alembic)
 
-**Opción A — Migraciones con Alembic (flujo habitual de desarrollo y despliegue):**
+Para aplicar todas las migraciones acumuladas del esquema hasta la última revisión:
 
 ```bash
-# Crear la base de datos vacía si aún no existe (UTF8 / es-ES)
-psql -U postgres -d postgres -c "CREATE DATABASE volumelab ENCODING 'UTF8' LC_CTYPE = 'es-ES';"
-
-# Aplicar todas las migraciones hasta la última revisión
 alembic upgrade head
 ```
 
-**Opción B — Carga directa del script SQL canónico v4 (entornos locales limpios):**
-
+Comandos habituales de soporte:
 ```bash
-psql -U postgres -d postgres -f db/volumelab_20-11-2026_v4.sql
-```
-
-> **Advertencia:** `volumelab_20-11-2026_v4.sql` ejecuta `DROP DATABASE IF EXISTS volumelab;`. No utilizar directamente sobre entornos con datos persistentes sin respaldo previo.
-
-Comandos útiles de Alembic:
-
-```bash
-# Generar una nueva migración tras modificar modelos SQLAlchemy
-alembic revision --autogenerate -m "descripcion_del_cambio"
-
-# Crear una migración manual (recomendado para cambios en vistas SQL o triggers PL/pgSQL)
-alembic revision -m "actualizar_triggers_o_vistas"
-
-# Consultar el estado actual de migraciones
+# Comprobar la revisión actual aplicada
 alembic current
+
+# Generar una nueva migración por cambios en modelos
+alembic revision --autogenerate -m "descripcion_del_cambio"
 
 # Revertir la última migración
 alembic downgrade -1
 ```
 
-### 5. Arrancar el servidor de desarrollo
+### 5. Iniciar el servidor de desarrollo
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Documentación interactiva disponible una vez arrancado el servicio:
+La documentación interactiva y el catálogo OpenAPI estarán accesibles en:
 - **Swagger UI:** `http://localhost:8000/docs`
 - **ReDoc:** `http://localhost:8000/redoc`
 
-### 6. Ejecutar pruebas
+### 6. Ejecución de pruebas
+
+El proyecto cuenta con una amplia suite de pruebas automatizadas que combinan tests unitarios, tests de integración y escenarios BDD (Gherkin):
 
 ```bash
-pytest
+# Ejecutar todas las pruebas del proyecto (unitarias, integración y BDD)
+pytest -v
+
+# Ejecutar omitiendo las pruebas con conexión externa directa a PostgreSQL
+pytest -v -m "not postgres"
+
+# Ejecutar pruebas PostgreSQL sobre bases de datos desechables aisladas
+pytest -v --run-postgres
 ```
 
 ---
-
-## CRUD de ejercicios (`workout`)
-
-La API expone `POST /workouts/`, `GET /workouts/`, `GET /workouts/{workout_id}`,
-`PUT /workouts/{workout_id}` y `DELETE /workouts/{workout_id}`.
-Los detalles y cuerpos de petición están disponibles en `/docs`.
-
-La creación requiere `name`, `type` (`DINAMICO` o `ISOMETRICO`) y `created_by`.
-La actualización mediante `PUT` conserva los campos omitidos. `DELETE` desactiva
-el ejercicio con `state=false`; conserva sus series y valoraciones. Es posible
-reactivarlo mediante `PUT` con `state=true`.
-
-El listado admite `skip`, `limit` (máximo 500), `created_by`, `type`, `public`
-y `state`. Sin filtros incluye ejercicios activos e inactivos. Los clientes
-pueden tener hasta 20 ejercicios públicos, incluidos los inactivos; los privados
-y los ejercicios de administradores no tienen ese límite. Un ejercicio con
-series registradas no permite cambiar su tipo. La autenticación y el aislamiento
-de datos por identidad autenticada quedan fuera de este CRUD.
-
-### Migración de ejercicios
-
-Antes de crear o aplicar una migración, avisar al equipo, actualizar la rama de
-trabajo e integrar `origin/dev`. El historial actual contiene varias cabezas de
-Alembic; para aplicar únicamente esta rama, ejecutar desde `volumelab-backend`:
-
-```bash
-./env/Scripts/python.exe -m alembic upgrade workout@head
-```
-
-En Linux y macOS, sustituir `./env/Scripts/python.exe` por `./env/bin/python`.
-La revisión `f2a7c8e9d410` depende de la creación de `app_user`. Crea `workout`
-si falta, o comprueba y conserva una tabla existente compatible. Mantiene el
-enum, las restricciones, el índice del creador y el trigger de límite público.
-Una estructura incompatible detiene la migración. Sus revisiones antecesoras
-también se aplican cuando aún no están registradas.
-
-La reversión elimina los objetos de `workout` y se verifica en bases desechables;
-no debe utilizarse para deshacer la adopción de una tabla con datos de trabajo.
-Esta revisión no unifica las demás ramas de migraciones del proyecto.
-
-### Pruebas de ejercicios
-
-```bash
-./env/Scripts/python.exe -m pytest -q
-./env/Scripts/python.exe -m pytest --run-postgres -q
-```
-
-La primera ejecución omite las pruebas que requieren PostgreSQL. La segunda
-ejecuta también migraciones, restricciones, concurrencia y valoraciones en bases
-temporales llamadas `volumelab_workout_test_<identifier>`, que se eliminan al
-terminar. Utiliza el servidor y las credenciales de `.env`; el usuario necesita
-permiso para crear bases de datos. Los tests no escriben en la base `volumelab`.
-Los 14 escenarios ejecutables en `features/workout.feature` están en inglés.
-## CRUD de grupos musculares (`muscle_group`)
-
-La API incorpora las siguientes operaciones, documentadas también en `/docs`:
-
-| Método | Ruta | Resultado |
-| --- | --- | --- |
-| POST | `/muscle-groups/` | Crea un grupo y devuelve `201` |
-| GET | `/muscle-groups/` | Lista grupos con respuesta `200` |
-| GET | `/muscle-groups/{muscle_group_id}` | Consulta un grupo o devuelve `404` |
-| PUT | `/muscle-groups/{muscle_group_id}` | Actualiza los campos enviados |
-| DELETE | `/muscle-groups/{muscle_group_id}` | Elimina un grupo sin asociaciones con respuesta `204` |
-
-La creación requiere `name` y `created_by`. El nombre se recorta en sus extremos,
-debe tener contenido y no superar 150 caracteres. Su unicidad conserva la
-comparación existente de PostgreSQL. `description` es opcional y puede limpiarse
-con `null`. Los campos omitidos en `PUT` conservan sus valores.
-
-El creador debe existir y tener rol `ADMIN`; un cliente recibe `403` y un creador
-inexistente recibe `404`. La reasignación del creador aplica la misma regla.
-Eliminar al usuario creador conserva el grupo con `created_by=null`.
-La autenticación del solicitante y sus permisos de edición y borrado se
-integrarán con la tarea de autenticación común; validar el creador no autentica
-al usuario que realiza la petición.
-
-El listado acepta `skip`, `limit` (entre 1 y 500) y `created_by`, y se ordena por
-identificador ascendente. `DELETE` devuelve `409` si existen asociaciones en
-`muscle_workout`, conservando el grupo y sus enlaces. El borrado de grupos sin
-asociaciones es físico: una consulta posterior devuelve `404`. No se añade un
-campo `state` ni se modifica la cascada existente de PostgreSQL.
-
-### Migración de grupos musculares
-
-La revisión `d3c8a51f9072`, con etiqueta `muscle_group`, depende de
-`ad8c21f5e9b7` (`app_user`). Crea los objetos ausentes o verifica y conserva una
-tabla existente compatible, incluidas sus restricciones y el trigger de
-administrador. No copia ni modifica la migración de `workout`.
-
-Antes de crear o aplicar migraciones, avisar al equipo, actualizar la rama y
-fusionar `origin/dev`. El comando de esta entidad es:
-
-```bash
-./env/Scripts/python.exe -m alembic upgrade muscle_group@head
-```
-
-La aplicación a la base local `volumelab` queda pendiente: esta ya registra la
-revisión `f2a7c8e9d410` de `workout`, todavía ausente en `dev` al preparar este
-cambio. Después de integrar esa tarea, actualizar la rama, conservar ambos
-modelos y utilidades de pruebas, verificar el historial y aplicar la nueva
-revisión. No eliminar revisiones registradas ni utilizar `stamp` para ocultar
-esta dependencia. Las pruebas de esta entidad no necesitan la migración de
-`workout` y utilizan bases desechables independientes.
-
-La reversión elimina los objetos de `muscle_group`; se comprueba en bases
-temporales y no debe ejecutarse para deshacer la adopción de datos de trabajo.
-
-### Pruebas de grupos musculares
-
-Desde la carpeta del backend:
-
-```bash
-./env/Scripts/python.exe -m pytest -q
-./env/Scripts/python.exe -m pytest --run-postgres -q
-```
-
-La primera ejecución omite las pruebas PostgreSQL. La segunda las activa y
-comprueba restricciones, triggers, concurrencia, adopción de tablas y reversión.
-Utiliza el servidor y credenciales de `.env` para crear y eliminar bases
-temporales `volumelab_test_<identifier>`; necesita permiso de creación de bases.
-No escribe en `volumelab`. En Linux o macOS, usar `./env/bin/python`.
-
-Esta rama integra el aislamiento de la suite de valoraciones de `workout` y
-ejecuta la regresión completa sobre datos aislados.
-Los 14 escenarios de `features/muscle_group.feature` se ejecutan en inglés.
-
-## Asociaciones entre ejercicios y músculos (`muscle_workout`)
-
-Cada asociación se identifica por la clave compuesta `(workout_id, muscle_group_id)`.
-No tiene un `id` adicional. La API ofrece `POST /muscle-workouts/`,
-`GET /muscle-workouts/` y las operaciones `GET`, `PUT` y `DELETE` en
-`/muscle-workouts/{workout_id}/{muscle_group_id}`.
-
-El campo `muscle_role` de Python y la API se corresponde con la columna existente
-`role_muscular`. Conserva los valores PostgreSQL y calcula su ponderación:
-
-| Rol | Ponderación | Factor |
-| --- | --- | --- |
-| `PRIMARIO` | 100 | 1 |
-| `SECUNDARIO` | 50 | 0,5 |
-| `TERCIARIO` | 10 | 0,1 |
-
-Ejemplo de creación:
-
-```json
-{
-  "workout_id": 1,
-  "muscle_group_id": 2,
-  "muscle_role": "SECUNDARIO"
-}
-```
-
-La respuesta incluye `weighing: 50`. Si se proporciona `weighing`, debe ser un
-entero que coincida con el rol. `PUT` puede cambiar rol y ponderación, que se
-guardan juntos. No permite cambiar la clave compuesta. No se exige que las
-ponderaciones de un ejercicio sumen 100 ni que tenga un único músculo primario.
-
-El listado admite filtros por ambos identificadores y rol, `skip` y `limit`
-(máximo 500), con orden por la clave compuesta. Las referencias inexistentes
-devuelven `404`, los duplicados `409` y los datos inválidos `422`.
-
-Si el ejercicio tiene series, el controlador rechaza altas, cambios y borrados
-con `409`, conservando su distribución muscular. Bloquea la fila del ejercicio
-durante la comprobación y escritura para coordinarse con las nuevas series.
-Las consultas siguen disponibles. Eliminar una asociación permitida devuelve
-`204` y conserva ejercicio y grupo. La autenticación sigue en su tarea común.
-
-### Migración de asociaciones
-
-La revisión `a9d1b6c2e730` tiene etiqueta `muscle_workout`, `down_revision=None`
-y dependencias explícitas en las revisiones existentes `f2a7c8e9d410` y
-`d3c8a51f9072`. Así mantiene las ramas padre independientes y prepara sus tablas
-antes de crear la asociación. No copia ni reescribe sus migraciones.
-
-Verifica o crea el enum, la tabla, su clave compuesta, ambas claves foráneas con
-cascada, la restricción de ponderaciones y el índice por grupo muscular. Una
-tabla existente compatible conserva sus datos; una estructura incompatible
-detiene la migración. Revertir esta rama elimina sus objetos y conserva las
-tablas padre; esa reversión se verifica únicamente en bases desechables.
-
-La aplicación a `volumelab` permanece pendiente de integrar los historiales de
-`workout` y `muscle_group` en `dev`. Antes de aplicarla, avisar al equipo,
-actualizar la rama, integrar `origin/dev` y verificar las revisiones disponibles.
-Una vez cumplido ese requisito, el comando es:
-
-```bash
-./env/Scripts/python.exe -m alembic upgrade muscle_workout@head
-```
-
-Esta rama parte de `dev` e integra localmente las dos tareas padre. Su PR también
-apunta a `dev`; hasta integrar primero esas tareas, mostrará sus cambios como
-dependencias. Las integraciones locales no aplican migraciones a la base de trabajo.
-
-### Pruebas de asociaciones
-
-Las pruebas usan el modelo completo y utilidades compartidas, incluidos los
-tests anteriores de grupos musculares. Se ejecutan con
-`./env/Scripts/python.exe -m pytest --run-postgres -q`.
-
-Los 16 casos Gherkin de `features/muscle_workout.feature` son ejecutables y están
-en inglés. Las pruebas PostgreSQL comprueban migración desde cero, adopción,
-incompatibilidades, reversión sin borrar padres, claves foráneas, ponderaciones,
-duplicados concurrentes y la carrera entre registrar la primera serie y crear
-una asociación. La protección adicional del historial se aplica en la API;
-las escrituras SQL directas conservan las restricciones documentadas de la base.
 
 ## Equipo
 
