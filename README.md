@@ -418,6 +418,81 @@ pytest
 
 ---
 
+## CRUD de grupos musculares (`muscle_group`)
+
+La API incorpora las siguientes operaciones, documentadas también en `/docs`:
+
+| Método | Ruta | Resultado |
+| --- | --- | --- |
+| POST | `/muscle-groups/` | Crea un grupo y devuelve `201` |
+| GET | `/muscle-groups/` | Lista grupos con respuesta `200` |
+| GET | `/muscle-groups/{muscle_group_id}` | Consulta un grupo o devuelve `404` |
+| PUT | `/muscle-groups/{muscle_group_id}` | Actualiza los campos enviados |
+| DELETE | `/muscle-groups/{muscle_group_id}` | Elimina un grupo sin asociaciones con respuesta `204` |
+
+La creación requiere `name` y `created_by`. El nombre se recorta en sus extremos,
+debe tener contenido y no superar 150 caracteres. Su unicidad conserva la
+comparación existente de PostgreSQL. `description` es opcional y puede limpiarse
+con `null`. Los campos omitidos en `PUT` conservan sus valores.
+
+El creador debe existir y tener rol `ADMIN`; un cliente recibe `403` y un creador
+inexistente recibe `404`. La reasignación del creador aplica la misma regla.
+Eliminar al usuario creador conserva el grupo con `created_by=null`.
+La autenticación del solicitante y sus permisos de edición y borrado se
+integrarán con la tarea de autenticación común; validar el creador no autentica
+al usuario que realiza la petición.
+
+El listado acepta `skip`, `limit` (entre 1 y 500) y `created_by`, y se ordena por
+identificador ascendente. `DELETE` devuelve `409` si existen asociaciones en
+`muscle_workout`, conservando el grupo y sus enlaces. El borrado de grupos sin
+asociaciones es físico: una consulta posterior devuelve `404`. No se añade un
+campo `state` ni se modifica la cascada existente de PostgreSQL.
+
+### Migración de grupos musculares
+
+La revisión `d3c8a51f9072`, con etiqueta `muscle_group`, depende de
+`ad8c21f5e9b7` (`app_user`). Crea los objetos ausentes o verifica y conserva una
+tabla existente compatible, incluidas sus restricciones y el trigger de
+administrador. No copia ni modifica la migración de `workout`.
+
+Antes de crear o aplicar migraciones, avisar al equipo, actualizar la rama y
+fusionar `origin/dev`. El comando de esta entidad es:
+
+```bash
+./env/Scripts/python.exe -m alembic upgrade muscle_group@head
+```
+
+La aplicación a la base local `volumelab` queda pendiente: esta ya registra la
+revisión `f2a7c8e9d410` de `workout`, todavía ausente en `dev` al preparar este
+cambio. Después de integrar esa tarea, actualizar la rama, conservar ambos
+modelos y utilidades de pruebas, verificar el historial y aplicar la nueva
+revisión. No eliminar revisiones registradas ni utilizar `stamp` para ocultar
+esta dependencia. Las pruebas de esta entidad no necesitan la migración de
+`workout` y utilizan bases desechables independientes.
+
+La reversión elimina los objetos de `muscle_group`; se comprueba en bases
+temporales y no debe ejecutarse para deshacer la adopción de datos de trabajo.
+
+### Pruebas de grupos musculares
+
+Desde la carpeta del backend:
+
+```bash
+./env/Scripts/python.exe -m pytest --ignore=tests/test_workout_rate_crud.py -q
+./env/Scripts/python.exe -m pytest --ignore=tests/test_workout_rate_crud.py --run-postgres -q
+```
+
+La primera ejecución omite las pruebas PostgreSQL. La segunda las activa y
+comprueba restricciones, triggers, concurrencia, adopción de tablas y reversión.
+Utiliza el servidor y credenciales de `.env` para crear y eliminar bases
+temporales `volumelab_test_<identifier>`; necesita permiso de creación de bases.
+No escribe en `volumelab`. En Linux o macOS, usar `./env/bin/python`.
+
+La exclusión corresponde a la suite antigua de valoraciones presente en `dev`,
+que utiliza la base de trabajo. Su aislamiento está en la tarea de `workout`;
+tras integrarla, ejecutar también la regresión completa sobre datos aislados.
+Los 14 escenarios de `features/muscle_group.feature` se ejecutan en inglés.
+
 ## Equipo
 
 | Miembro | Rol |
