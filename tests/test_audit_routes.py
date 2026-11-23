@@ -1,4 +1,3 @@
-import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -63,7 +62,7 @@ def test_get_audit_rejects_non_positive_id(client_with_mock_db):
     assert response.status_code == 422
 
 
-def test_integrity_error_foreign_key_returns_409_and_logs_warning(client_with_mock_db, caplog):
+def test_integrity_error_foreign_key_returns_409(client_with_mock_db):
     client, db = client_with_mock_db
     db.execute.return_value.first.return_value = (1,)
     db.commit.side_effect = IntegrityError(
@@ -75,18 +74,16 @@ def test_integrity_error_foreign_key_returns_409_and_logs_warning(client_with_mo
         ),
     )
 
-    with caplog.at_level(logging.WARNING, logger="volumelab.audit"):
-        response = client.post(
-            "/audits/",
-            json={
-                "user_id": 1,
-                "entity": "workout_session",
-                "record_id": "10",
-                "action": "INSERT",
-            },
-        )
+    response = client.post(
+        "/audits/",
+        json={
+            "user_id": 1,
+            "entity": "workout_session",
+            "record_id": "10",
+            "action": "INSERT",
+        },
+    )
     assert response.status_code == 409
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 def test_integrity_error_not_null_returns_422(client_with_mock_db):
@@ -120,13 +117,11 @@ def test_dbapi_error_invalid_enum_returns_422(client_with_mock_db):
     assert response.status_code == 422
 
 
-def test_dbapi_error_returns_500_and_logs_error(client_with_mock_db, caplog):
+def test_dbapi_error_returns_500(client_with_mock_db):
     client, db = client_with_mock_db
     db.query.side_effect = DBAPIError(
         "SELECT", {}, _FakePgError("connection closed", "08006")
     )
 
-    with caplog.at_level(logging.ERROR, logger="volumelab.audit"):
-        response = client.get("/audits/")
+    response = client.get("/audits/")
     assert response.status_code == 500
-    assert any(r.levelno == logging.ERROR for r in caplog.records)

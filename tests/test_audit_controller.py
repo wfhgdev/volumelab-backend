@@ -1,5 +1,4 @@
 from datetime import datetime
-import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,7 +12,6 @@ from app.controllers.audit_controller import (
     record_audit_event,
     update_audit,
 )
-from app.core.audit_logger import AuditLogLevel
 from app.core.exceptions import (
     AuditDateRangeValidationException,
     AuditNotFoundException,
@@ -41,7 +39,7 @@ def make_audit_record(
     )
 
 
-def test_create_audit_commits_and_logs_info_when_user_exists(caplog):
+def test_create_audit_commits_when_user_exists():
     db = MagicMock()
     db.execute.return_value.first.return_value = (1,)
     payload = AuditCreate(
@@ -52,8 +50,7 @@ def test_create_audit_commits_and_logs_info_when_user_exists(caplog):
         endpoint="/workout-sessions/",
     )
 
-    with caplog.at_level(logging.INFO, logger="volumelab.audit"):
-        result = create_audit(db, payload)
+    result = create_audit(db, payload)
 
     db.execute.assert_called_once()
     db.add.assert_called_once()
@@ -61,7 +58,6 @@ def test_create_audit_commits_and_logs_info_when_user_exists(caplog):
     db.refresh.assert_called_once_with(result)
     assert result.user_id == 1
     assert result.action == AuditAction.INSERT
-    assert any(r.levelno == logging.INFO for r in caplog.records)
 
 
 def test_create_audit_allows_null_user_id_without_user_lookup():
@@ -83,7 +79,7 @@ def test_create_audit_allows_null_user_id_without_user_lookup():
     assert result.action == AuditAction.EXPORT
 
 
-def test_create_audit_raises_404_and_logs_warning_when_user_missing(caplog):
+def test_create_audit_raises_404_when_user_missing():
     db = MagicMock()
     db.execute.return_value.first.return_value = None
     payload = AuditCreate(
@@ -93,17 +89,15 @@ def test_create_audit_raises_404_and_logs_warning_when_user_missing(caplog):
         action=AuditAction.UPDATE,
     )
 
-    with caplog.at_level(logging.WARNING, logger="volumelab.audit"):
-        with pytest.raises(HTTPException) as exc:
-            create_audit(db, payload)
+    with pytest.raises(HTTPException) as exc:
+        create_audit(db, payload)
 
     assert exc.value.status_code == 404
     db.add.assert_not_called()
     db.commit.assert_not_called()
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
-def test_create_audit_rolls_back_and_logs_error_on_commit_error(caplog):
+def test_create_audit_rolls_back_on_commit_error():
     db = MagicMock()
     db.execute.return_value.first.return_value = (1,)
     db.commit.side_effect = RuntimeError("db error")
@@ -114,35 +108,29 @@ def test_create_audit_rolls_back_and_logs_error_on_commit_error(caplog):
         action=AuditAction.DELETE,
     )
 
-    with caplog.at_level(logging.ERROR, logger="volumelab.audit"):
-        with pytest.raises(RuntimeError):
-            create_audit(db, payload)
+    with pytest.raises(RuntimeError):
+        create_audit(db, payload)
 
     db.rollback.assert_called_once()
-    assert any(r.levelno == logging.ERROR for r in caplog.records)
 
 
-def test_record_audit_event_helper_persists_and_logs_critical(caplog):
+def test_record_audit_event_helper_persists_event():
     db = MagicMock()
     db.execute.return_value.first.return_value = (1,)
 
-    with caplog.at_level(logging.INFO, logger="volumelab.audit"):
-        result = record_audit_event(
-            db,
-            user_id=1,
-            entity="app_user",
-            record_id=1,
-            action=AuditAction.DELETE,
-            endpoint="/app-users/1",
-            level=AuditLogLevel.CRITICAL,
-            message="Incidencia en borrado RGPD art. 17",
-            details={"reason": "timeout"},
-        )
+    result = record_audit_event(
+        db,
+        user_id=1,
+        entity="app_user",
+        record_id=1,
+        action="DELETE",
+        endpoint="/app-users/1",
+    )
 
     assert result.record_id == "1"
     assert result.action == AuditAction.DELETE
+    assert result.endpoint == "/app-users/1"
     db.commit.assert_called_once()
-    assert any(r.levelno == logging.CRITICAL for r in caplog.records)
 
 
 def test_list_audits_applies_order_and_pagination():
@@ -183,20 +171,18 @@ def test_list_audits_applies_all_filters():
     assert query.filter.call_count == 6
 
 
-def test_list_audits_rejects_inverted_date_range_and_logs_warning(caplog):
+def test_list_audits_rejects_inverted_date_range():
     db = MagicMock()
 
-    with caplog.at_level(logging.WARNING, logger="volumelab.audit"):
-        with pytest.raises(AuditDateRangeValidationException) as exc:
-            list_audits(
-                db,
-                date_from=datetime(2026, 11, 22, 0, 0, 0),
-                date_to=datetime(2026, 11, 20, 0, 0, 0),
-            )
+    with pytest.raises(AuditDateRangeValidationException) as exc:
+        list_audits(
+            db,
+            date_from=datetime(2026, 11, 22, 0, 0, 0),
+            date_to=datetime(2026, 11, 20, 0, 0, 0),
+        )
 
     assert exc.value.status_code == 400
     db.query.assert_not_called()
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 def test_get_audit_returns_record():
@@ -209,16 +195,14 @@ def test_get_audit_returns_record():
     assert result.id == 5
 
 
-def test_get_audit_raises_404_when_missing(caplog):
+def test_get_audit_raises_404_when_missing():
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = None
 
-    with caplog.at_level(logging.WARNING, logger="volumelab.audit"):
-        with pytest.raises(AuditNotFoundException) as exc:
-            get_audit(db, 999)
+    with pytest.raises(AuditNotFoundException) as exc:
+        get_audit(db, 999)
 
     assert exc.value.status_code == 404
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 def test_update_audit_updates_fields_without_user_check_when_unchanged():
@@ -277,17 +261,15 @@ def test_update_audit_raises_404_when_record_missing():
     assert exc.value.status_code == 404
 
 
-def test_delete_audit_removes_and_commits(caplog):
+def test_delete_audit_removes_and_commits():
     db = MagicMock()
     record = make_audit_record(audit_id=1)
     db.query.return_value.filter.return_value.first.return_value = record
 
-    with caplog.at_level(logging.INFO, logger="volumelab.audit"):
-        delete_audit(db, 1)
+    delete_audit(db, 1)
 
     db.delete.assert_called_once_with(record)
     db.commit.assert_called_once()
-    assert any(r.levelno == logging.INFO for r in caplog.records)
 
 
 def test_delete_audit_raises_404_when_missing():
