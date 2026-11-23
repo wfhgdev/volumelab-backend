@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from fastapi import HTTPException
@@ -56,7 +55,6 @@ def test_creation_validates_administrator(role, exists, status):
         controller.create_muscle_group(db, MuscleGroupCreate(name="Chest", created_by=1))
     assert error.value.status_code == status
     db.commit.assert_not_called()
-    db.rollback.assert_called_once()
 
 
 def test_creation_rejects_duplicate_name():
@@ -135,36 +133,8 @@ def test_deletion_supports_schema_without_association_table(monkeypatch):
     db.commit.assert_called_once()
 
 
-@pytest.mark.parametrize(("sqlstate", "status"), [
-    ("23505", 409), ("23503", 409), ("23001", 409), ("23502", 422),
-    ("23514", 422), ("22P02", 422), ("08006", 500),
-])
-def test_database_errors_are_rolled_back_and_sanitized(sqlstate, status):
+def test_database_errors_propagate_to_global_handler():
     db, _, _ = make_database()
-    db.commit.side_effect = DBAPIError("Private SQL", {}, DatabaseError(sqlstate))
-    with pytest.raises(HTTPException) as error:
+    db.commit.side_effect = DBAPIError("Private SQL", {}, DatabaseError("23505"))
+    with pytest.raises(DBAPIError):
         controller.create_muscle_group(db, MuscleGroupCreate(name="Chest", created_by=1))
-    assert error.value.status_code == status
-    assert "Private" not in error.value.detail
-    db.rollback.assert_called_once()
-
-
-@pytest.mark.parametrize("diagnostic", [
-    SimpleNamespace(constraint_name="muscle_group_admin_only", context=None),
-    SimpleNamespace(constraint_name=None, context="PL/pgSQL function fn_muscle_group_admin_only()"),
-])
-def test_existing_and_new_trigger_errors_return_forbidden(diagnostic):
-    db, _, _ = make_database()
-    db.commit.side_effect = DBAPIError("INSERT", {}, DatabaseError("P0001", diagnostic))
-    with pytest.raises(HTTPException) as error:
-        controller.create_muscle_group(db, MuscleGroupCreate(name="Chest", created_by=1))
-    assert error.value.status_code == 403
-
-
-def test_read_errors_are_sanitized():
-    db = MagicMock()
-    db.query.side_effect = DBAPIError("Private SQL", {}, DatabaseError("08006"))
-    with pytest.raises(HTTPException) as error:
-        controller.list_muscle_groups(db)
-    assert error.value.status_code == 500
-    db.rollback.assert_called_once()
