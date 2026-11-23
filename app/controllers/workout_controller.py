@@ -1,48 +1,10 @@
-from contextlib import contextmanager
-
 from fastapi import HTTPException
-from pydantic import ValidationError
 from pydantic import ValidationError
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
-from fastapi import HTTPException
-
-
-
 from app.models.app_user_model import AppUserModel, RoleUser
 from app.models.workout_model import ExerciseType, WorkoutModel
 from app.schemas.workout_schema import WorkoutBase, WorkoutCreate, WorkoutUpdate
-
-
-def _database_error(exc: DBAPIError) -> HTTPException:
-    sqlstate = getattr(exc.orig, "sqlstate", None)
-    diagnostic = getattr(exc.orig, "diag", None)
-    constraint = getattr(diagnostic, "constraint_name", None)
-    context = getattr(diagnostic, "context", "") or ""
-    if sqlstate == "23505":
-        return HTTPException(409, "A workout with this name already exists")
-    if sqlstate == "23503":
-        return HTTPException(409, "The workout creator no longer exists")
-    if sqlstate in {"23502", "23514", "22P02"}:
-        return HTTPException(422, "Workout data violates a database constraint")
-    if sqlstate == "P0001" and (
-            constraint == "workout_public_limit" or "fn_workout_client_limit" in context
-    ):
-        return HTTPException(409, "A client can have at most 20 public workouts")
-    return HTTPException(500, "An unexpected database error occurred")
-
-
-@contextmanager
-def _database_operation(db: Session):
-    try:
-        yield
-    except DBAPIError as exc:
-        db.rollback()
-        raise _database_error(exc) from exc
-    except HTTPException:
-        db.rollback()
-        raise
 
 
 def _find_workout(db: Session, workout_id: int, lock: bool = False) -> WorkoutModel:
