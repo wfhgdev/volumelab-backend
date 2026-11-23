@@ -5,6 +5,9 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+_NON_NULLABLE_UPDATE_FIELDS = ("user_id", "session_date", "public", "status")
+
+
 class SessionStatusEnum(str, Enum):
     ABIERTO = "ABIERTO"
     CERRADO = "CERRADO"
@@ -48,6 +51,13 @@ class WorkoutSessionUpdate(BaseModel):
     closed_at: Optional[datetime] = Field(None, description="Fecha de cierre de la sesión")
     public: Optional[bool] = Field(None, description="Si la sesión es pública")
     status: Optional[SessionStatusEnum] = Field(None, description="Estado de la sesión")
+
+    @model_validator(mode="after")
+    def validate_non_nullable_fields(self) -> "WorkoutSessionUpdate":
+        for field_name in _NON_NULLABLE_UPDATE_FIELDS:
+            if field_name in self.model_fields_set and getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} cannot be null")
+        return self
 
 
 class WorkoutSessionResponse(BaseModel):

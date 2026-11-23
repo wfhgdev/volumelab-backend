@@ -104,3 +104,9 @@ def test_update_accepts_partial_payload():
     payload = WorkoutSessionUpdate(title="Nuevo titulo")
     assert payload.title == "Nuevo titulo"
     assert payload.user_id is None
+
+
+@pytest.mark.parametrize("field", ["user_id", "session_date", "public", "status"])
+def test_update_rejects_explicit_null_in_non_nullable_fields(field):
+    with pytest.raises(ValidationError):
+        WorkoutSessionUpdate(**{field: None})

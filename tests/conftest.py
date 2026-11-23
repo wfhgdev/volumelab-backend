@@ -1,15 +1,26 @@
 import pytest
 from datetime import date
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.database_connection import Base, get_db
+from app.core.database_connection import SessionLocal, engine, get_db
 from app.models.app_user_model import AppUserModel
 from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
-from app.models.training_week_model import TrainingWeekModel
 from app.main import app
+
+
+engine.echo = False
+from app.models.training_week_model import TrainingWeekModel
+from app.models.muscle_group_model import MuscleGroupModel
+from app.models.workout_model import ExerciseType, WorkoutModel
+from app.main import app
+
+
+pytest_plugins = ("tests.postgres_fixtures",)
 
 
 
@@ -26,14 +37,18 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 @pytest.fixture(scope="function")
 def db_session():
-    """Crea una base de datos limpia para cada test."""
-    Base.metadata.create_all(bind=engine_test)
-    session = TestingSessionLocal()
+    """Sesión PostgreSQL real con rollback al final de cada test."""
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = SessionLocal(bind=connection, join_transaction_mode="create_savepoint")
     try:
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine_test)
+        try:
+            transaction.rollback()
+        finally:
+            connection.close()
 
 
 @pytest.fixture(scope="function")
@@ -55,7 +70,7 @@ def client(db_session):
 def test_user(db_session) -> AppUserModel:
     """Crea un usuario de prueba en la base de datos."""
     user = AppUserModel(
-        email="test_user@volumelab.com",
+        email=f"test_user_{uuid4().hex}@volumelab.com",
         password_hash="hashed_secret_password",
         name="Beatriz",
         lastname="Iñiguez",
@@ -82,4 +97,61 @@ def test_mesocycle(db_session, test_user) -> MesocycleModel:
     db_session.commit()
     db_session.refresh(meso)
     return meso
+
+
+@pytest.fixture
+def workout_db(db_session):
+    db_session.execute(text(
+        "CREATE TABLE workout_set (id INTEGER PRIMARY KEY, "
+        "exercise_id INTEGER NOT NULL REFERENCES workout(id))"
+    ))
+    db_session.commit()
+    try:
+        yield db_session
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE workout_set"))
+        db_session.commit()
+
+
+@pytest.fixture
+def workout_api(client, workout_db, test_user):
+    return client, workout_db, test_user
+
+def muscle_group_api(client, db_session, test_user):
+    test_user.role = "ADMIN"
+    db_session.commit()
+    db_session.execute(text(
+        "CREATE TABLE workout_set (id INTEGER PRIMARY KEY, "
+        "exercise_id INTEGER NOT NULL REFERENCES workout(id))"
+    ))
+    db_session.commit()
+    try:
+        yield db_session
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE workout_set"))
+        db_session.commit()
+
+
+@pytest.fixture
+def workout_api(client, workout_db, test_user):
+    return client, workout_db, test_user
+
+
+@pytest.fixture
+def muscle_group_api(client, db_session, test_user):
+    test_user.role = "ADMIN"
+    db_session.commit()
+    return client, db_session, test_user
+
+
+@pytest.fixture
+def association_api(client, workout_db, test_user):
+    test_user.role = "ADMIN"
+    workout = WorkoutModel(name="Squat", type=ExerciseType.DYNAMIC, created_by=test_user.id)
+    group = MuscleGroupModel(name="Legs", created_by=test_user.id)
+    workout_db.add_all([workout, group])
+    workout_db.commit()
+    return client, workout_db, workout, group
 

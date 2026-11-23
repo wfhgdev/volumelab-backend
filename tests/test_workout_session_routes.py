@@ -1,7 +1,10 @@
 from datetime import date
 from decimal import Decimal
 import pytest
+from app.models.app_user_model import AppUserModel, RoleUser
+from app.models.mesocycle_model import MesocycleModel
 from app.models.training_week_model import TrainingWeekModel
+from app.models.workout_session_model import WorkoutSessionModel
 
 
 @pytest.fixture
@@ -18,19 +21,70 @@ def test_week(db_session, test_mesocycle):
     return week
 
 
-def session_payload(user_id: int, week_id: int | None = None) -> dict:
+@pytest.fixture
+def other_user(db_session):
+    user = AppUserModel(
+        email="other_user@volumelab.com",
+        password_hash="hashed_secret_password",
+        name="Otro",
+        role=RoleUser.CLIENTE,
+        status="ACTIVO",
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def other_week(db_session, other_user):
+    mesocycle = MesocycleModel(
+        user_id=other_user.id,
+        name="Mesociclo Ajeno",
+        start_date=date(2026, 1, 1),
+        end_date=date(2026, 3, 31),
+    )
+    db_session.add(mesocycle)
+    db_session.commit()
+    db_session.refresh(mesocycle)
+
+    week = TrainingWeekModel(
+        mesocycle_id=mesocycle.id,
+        week_order=1,
+        start_date=date(2026, 11, 1),
+        end_date=date(2026, 11, 7),
+    )
+    db_session.add(week)
+    db_session.commit()
+    db_session.refresh(week)
+    return week
+
+
+def session_payload(user_id: int, week_id: int | None = None, public: bool = False) -> dict:
     payload = {
         "user_id": user_id,
         "title": "POWERRR",
         "session_date": "2026-11-21",
         "current_bodyweight_kg": 60.5,
         "observation": "sigue adelante",
-        "public": False,
+        "public": public,
         "status": "ABIERTO",
     }
     if week_id is not None:
         payload["week_id"] = week_id
     return payload
+
+
+def add_public_sessions(db_session, user_id: int, count: int) -> None:
+    for index in range(count):
+        db_session.add(
+            WorkoutSessionModel(
+                user_id=user_id,
+                session_date=date(2026, 11, 20),
+                public=True,
+            )
+        )
+    db_session.commit()
 
 
 def test_create_workout_session(client, test_user, test_week):
@@ -59,6 +113,16 @@ def test_create_with_missing_week_returns_404(client, test_user):
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
+
+
+def test_create_rejects_week_from_another_user(client, test_user, other_week):
+    response = client.post(
+        "/workout-sessions/",
+        json=session_payload(test_user.id, other_week.id),
+    )
+
+    assert response.status_code == 422
+    assert "does not belong" in response.json()["detail"]
 
 
 def test_create_rejects_invalid_payload(client, test_user):
@@ -113,6 +177,25 @@ def test_update_and_close_workout_session(client, test_user):
     assert closed.json()["closed_at"] is not None
 
 
+def test_update_rejects_explicit_null(client, test_user):
+    created = client.post("/workout-sessions/", json=session_payload(test_user.id))
+    session_id = created.json()["id"]
+
+    response = client.put(f"/workout-sessions/{session_id}", json={"user_id": None})
+
+    assert response.status_code == 422
+    assert "user_id" in str(response.json()["detail"])
+
+
+def test_update_rejects_week_from_another_user(client, test_user, other_week):
+    created = client.post("/workout-sessions/", json=session_payload(test_user.id))
+    session_id = created.json()["id"]
+
+    response = client.put(f"/workout-sessions/{session_id}", json={"week_id": other_week.id})
+
+    assert response.status_code == 422
+
+
 def test_delete_workout_session(client, test_user):
     created = client.post("/workout-sessions/", json=session_payload(test_user.id))
     session_id = created.json()["id"]
@@ -122,6 +205,63 @@ def test_delete_workout_session(client, test_user):
 
     detail = client.get(f"/workout-sessions/{session_id}")
     assert detail.status_code == 404
+
+
+def test_create_rejects_21st_public_session_for_cliente(client, db_session, test_user):
+    add_public_sessions(db_session, test_user.id, 20)
+
+    response = client.post(
+        "/workout-sessions/",
+        json=session_payload(test_user.id, public=True),
+    )
+
+    assert response.status_code == 422
+    assert "20 public workout sessions" in response.json()["detail"]
+
+
+def test_create_allows_public_session_for_admin(client, db_session):
+    admin = AppUserModel(
+        email="admin@volumelab.com",
+        password_hash="hashed_secret_password",
+        name="Admin",
+        role=RoleUser.ADMIN,
+        status="ACTIVO",
+    )
+    db_session.add(admin)
+    db_session.commit()
+    db_session.refresh(admin)
+    add_public_sessions(db_session, admin.id, 20)
+
+    response = client.post(
+        "/workout-sessions/",
+        json=session_payload(admin.id, public=True),
+    )
+
+    assert response.status_code == 201
+
+
+def test_update_rejects_publishing_over_cliente_quota(client, db_session, test_user):
+    add_public_sessions(db_session, test_user.id, 20)
+    created = client.post("/workout-sessions/", json=session_payload(test_user.id))
+    session_id = created.json()["id"]
+
+    response = client.put(f"/workout-sessions/{session_id}", json={"public": True})
+
+    assert response.status_code == 422
+    assert "20 public workout sessions" in response.json()["detail"]
+
+
+def test_update_rejects_reassigning_user_over_public_quota(client, db_session, test_user, other_user):
+    add_public_sessions(db_session, test_user.id, 20)
+    created = client.post(
+        "/workout-sessions/",
+        json=session_payload(other_user.id, public=True),
+    )
+    session_id = created.json()["id"]
+
+    response = client.put(f"/workout-sessions/{session_id}", json={"user_id": test_user.id})
+
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize(
