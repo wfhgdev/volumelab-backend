@@ -2,24 +2,15 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
-    Column,
     DateTime,
     ForeignKey,
     Integer,
-    Table,
     UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database_connection import Base
-
-# Definición de tablas de referencia con extend_existing para resolución de FKs
-# en SQLAlchemy antes de que los modelos completos sean cargados.
-if "workout" not in Base.metadata.tables:
-    Table("workout", Base.metadata, Column("id", Integer, primary_key=True), extend_existing=True)
-if "app_user" not in Base.metadata.tables:
-    Table("app_user", Base.metadata, Column("id", BigInteger, primary_key=True), extend_existing=True)
-
+from app.models.workout_model import WorkoutModel
 
 class WorkoutRateModel(Base):
     """
@@ -43,7 +34,7 @@ class WorkoutRateModel(Base):
         BigInteger, primary_key=True, autoincrement=True, index=True
     )
     id_workout: Mapped[int] = mapped_column(
-        Integer, ForeignKey("workout.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey(WorkoutModel.__table__.c.id, ondelete="CASCADE"), nullable=False, index=True
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False, index=True

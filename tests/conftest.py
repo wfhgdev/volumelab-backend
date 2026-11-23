@@ -88,6 +88,24 @@ def test_mesocycle(db_session, test_user) -> MesocycleModel:
 
 
 @pytest.fixture
+def workout_db(db_session):
+    db_session.execute(text(
+        "CREATE TABLE workout_set (id INTEGER PRIMARY KEY, "
+        "exercise_id INTEGER NOT NULL REFERENCES workout(id))"
+    ))
+    db_session.commit()
+    try:
+        yield db_session
+    finally:
+        db_session.rollback()
+        db_session.execute(text("DROP TABLE workout_set"))
+        db_session.commit()
+
+
+@pytest.fixture
+def workout_api(client, workout_db, test_user):
+    return client, workout_db, test_user
+
 def muscle_group_api(client, db_session, test_user):
     test_user.role = "ADMIN"
     db_session.commit()

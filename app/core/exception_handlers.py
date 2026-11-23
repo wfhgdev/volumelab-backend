@@ -17,6 +17,11 @@ async def integrity_error_handler(request: Request, exc: Exception) -> JSONRespo
                 status_code=409,
                 content={"detail": "Ya existe un grupo muscular con este nombre"},
             )
+        if constraint == "uq_workout_name" or ("workout" in lowered and "name" in lowered):
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "Ya existe un ejercicio con este nombre"},
+            )
         return JSONResponse(
             status_code=409,
             content={"detail": "Conflicto de integridad: el registro ya existe"},
@@ -30,6 +35,11 @@ async def integrity_error_handler(request: Request, exc: Exception) -> JSONRespo
             return JSONResponse(
                 status_code=409,
                 content={"detail": "No se puede eliminar un grupo muscular asociado a ejercicios"},
+            )
+        if "workout" in lowered and ("created_by" in lowered or "creator" in lowered or "app_user" in lowered):
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "El creador del ejercicio ya no existe"},
             )
         return JSONResponse(
             status_code=409,
@@ -57,6 +67,17 @@ async def db_error_handler(request: Request, exc: Exception) -> JSONResponse:
     if sqlstate == "P0001":
         if "rn-07" in lowered:
             return JSONResponse(status_code=409, content={"detail": db_message})
+        if (
+            constraint == "workout_public_limit"
+            or "fn_workout_client_limit" in context.lower()
+            or "fn_workout_client_limit" in lowered
+            or "20 public workouts" in lowered
+            or "workout_public_limit" in lowered
+        ):
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "Un cliente puede tener como máximo 20 ejercicios públicos"},
+            )
         if (
             "solo un admin" in lowered
             or constraint == "muscle_group_admin_only"
