@@ -22,9 +22,4 @@ __pycache__/
 .idea/
 .vscode/
 
-# Local agent instructions
-AGENTS.md
-task/
-task/goal.md
-
 # Toptal gitignore https://www.toptal.com/

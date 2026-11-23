@@ -9,12 +9,14 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLEnum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     Identity,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database_connection import Base
@@ -32,6 +34,8 @@ class WorkoutSessionModel(Base):
     __table_args__ = (
         CheckConstraint("(status = 'CERRADO') = (closed_at IS NOT NULL)", name="chk_session_closed"),
         CheckConstraint("current_bodyweight_kg IS NULL OR current_bodyweight_kg > 0", name="chk_session_snapshot"),
+        Index("idx_workout_session_user_date", "user_id", text("session_date DESC")),
+        Index("idx_workout_session_week", "week_id"),
         {"extend_existing": True},
     )
 
@@ -45,13 +49,11 @@ class WorkoutSessionModel(Base):
         BigInteger().with_variant(Integer, "sqlite"),
         ForeignKey("app_user.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     week_id: Mapped[int | None] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
         ForeignKey("training_week.id", ondelete="SET NULL"),
         nullable=True,
-        index=True,
     )
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     session_date: Mapped[date] = mapped_column(SQLDate, nullable=False)

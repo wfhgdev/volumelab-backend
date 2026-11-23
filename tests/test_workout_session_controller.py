@@ -10,7 +10,8 @@ from app.controllers.workout_session_controller import (
     get_workout_sessions,
     update_workout_session,
 )
-from app.models.app_user_model import AppUserModel
+from app.models.app_user_model import AppUserModel, RoleUser
+from app.models.mesocycle_model import MesocycleModel
 from app.models.training_week_model import TrainingWeekModel
 from app.models.workout_session_model import SessionStatus, WorkoutSessionModel
 from app.schemas.workout_session_schema import WorkoutSessionCreate, WorkoutSessionUpdate
@@ -36,19 +37,38 @@ def make_session(
     )
 
 
-def make_db(user_exists: bool = True, week_exists: bool = True, session=None) -> MagicMock:
+def make_db(
+    user_exists: bool = True,
+    week_exists: bool = True,
+    session=None,
+    role: RoleUser = RoleUser.CLIENTE,
+    public_count: int = 0,
+    week_owner_id: int = 1,
+) -> MagicMock:
     db = MagicMock()
+
+    user = MagicMock()
+    user.id = 1
+    user.role = role
+
+    week = MagicMock()
+    week.mesocycle_id = 10
+    mesocycle = MagicMock()
+    mesocycle.user_id = week_owner_id
 
     def fake_get(model, ident):
         if model is AppUserModel:
-            return object() if user_exists else None
+            return user if user_exists else None
         if model is TrainingWeekModel:
-            return object() if week_exists else None
+            return week if week_exists else None
+        if model is MesocycleModel:
+            return mesocycle if week_exists else None
         if model is WorkoutSessionModel:
             return session
         return None
 
     db.get.side_effect = fake_get
+    db.scalar.return_value = public_count
     return db
 
 
@@ -235,3 +255,65 @@ def test_delete_raises_404_when_missing():
         delete_workout_session(db, 99)
 
     assert exc.value.status_code == 404
+
+
+def test_list_orders_by_session_date_then_id():
+    db = make_db()
+    db.scalars.return_value.all.return_value = []
+
+    get_workout_sessions(db)
+
+    query = str(db.scalars.call_args.args[0])
+    assert "ORDER BY workout_session.session_date DESC, workout_session.id DESC" in query
+
+
+def test_create_rejects_training_week_from_another_user():
+    db = make_db(week_owner_id=2)
+    payload = WorkoutSessionCreate(user_id=1, week_id=1, session_date=date(2026, 11, 21))
+
+    with pytest.raises(HTTPException) as exc:
+        create_workout_session(db, payload)
+
+    assert exc.value.status_code == 422
+    db.commit.assert_not_called()
+
+
+def test_update_rejects_training_week_from_another_user():
+    db = make_db(session=make_session(), week_owner_id=2)
+
+    with pytest.raises(HTTPException) as exc:
+        update_workout_session(db, 1, WorkoutSessionUpdate(week_id=1))
+
+    assert exc.value.status_code == 422
+    db.commit.assert_not_called()
+
+
+def test_create_rejects_21st_public_session_for_cliente():
+    db = make_db(public_count=20)
+    payload = WorkoutSessionCreate(user_id=1, session_date=date(2026, 11, 21), public=True)
+
+    with pytest.raises(HTTPException) as exc:
+        create_workout_session(db, payload)
+
+    assert exc.value.status_code == 422
+    db.commit.assert_not_called()
+
+
+def test_create_allows_public_session_for_admin():
+    db = make_db(role=RoleUser.ADMIN, public_count=20)
+    payload = WorkoutSessionCreate(user_id=1, session_date=date(2026, 11, 21), public=True)
+
+    result = create_workout_session(db, payload)
+
+    assert result.public is True
+    db.commit.assert_called_once()
+
+
+def test_update_rejects_publishing_over_cliente_quota():
+    db = make_db(session=make_session(), public_count=20)
+
+    with pytest.raises(HTTPException) as exc:
+        update_workout_session(db, 1, WorkoutSessionUpdate(public=True))
+
+    assert exc.value.status_code == 422
+    db.commit.assert_not_called()
