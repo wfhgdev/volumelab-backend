@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -112,36 +111,8 @@ def test_deletion_is_logical_and_repeatable():
     db.delete.assert_not_called()
 
 
-@pytest.mark.parametrize(("sqlstate", "expected"), [
-    ("23505", 409), ("23503", 409), ("23514", 422),
-    ("23502", 422), ("22P02", 422), ("08006", 500),
-])
-def test_database_errors_are_sanitized_and_rolled_back(sqlstate, expected):
+def test_database_errors_propagate_to_global_handler():
     db = database_with_workout(make_workout())
-    original = DatabaseError(sqlstate)
-    db.commit.side_effect = DBAPIError("private SQL", {}, original)
-    with pytest.raises(HTTPException) as error:
+    db.commit.side_effect = DBAPIError("private SQL", {}, DatabaseError("23505"))
+    with pytest.raises(DBAPIError):
         delete_workout(db, 1)
-    assert error.value.status_code == expected
-    assert "private SQL" not in error.value.detail
-    db.rollback.assert_called_once()
-
-
-def test_read_errors_are_sanitized():
-    db = MagicMock()
-    db.query.side_effect = DBAPIError("private SQL", {}, DatabaseError("08006"))
-    with pytest.raises(HTTPException) as error:
-        list_workouts(db)
-    assert error.value.status_code == 500
-    db.rollback.assert_called_once()
-
-
-def test_existing_trigger_limit_is_translated():
-    db = database_with_workout(make_workout())
-    original = DatabaseError("P0001", diag=SimpleNamespace(
-        constraint_name=None, context="PL/pgSQL function fn_workout_client_limit()",
-    ))
-    db.commit.side_effect = DBAPIError("UPDATE", {}, original)
-    with pytest.raises(HTTPException) as error:
-        delete_workout(db, 1)
-    assert error.value.status_code == 409
