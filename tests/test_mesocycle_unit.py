@@ -187,13 +187,15 @@ class TestMesocycleHTTPRoutes:
         client.post("/mesocycles/", json=payload1)
         client.post("/mesocycles/", json=payload2)
 
-        # Sin filtros
-        res_all = client.get("/mesocycles/")
+        # Sin filtros adicionales, solo los del usuario de prueba
+        res_all = client.get(f"/mesocycles/?user_id={test_user.id}")
         assert res_all.status_code == 200
         assert len(res_all.json()) == 2
 
         # Filtro por status ACTIVO
-        res_active = client.get("/mesocycles/?status=ACTIVO")
+        res_active = client.get(
+            f"/mesocycles/?user_id={test_user.id}&status=ACTIVO"
+        )
         assert res_active.status_code == 200
         assert len(res_active.json()) == 1
         assert res_active.json()[0]["name"] == "Meso 2"
