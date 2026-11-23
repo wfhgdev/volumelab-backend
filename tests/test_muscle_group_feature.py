@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from app.models.app_user_model import AppUserModel
 from app.models.muscle_group_model import MuscleGroupModel
+from tests.catalog_support import associate_group
 
 
 scenarios("../features/muscle_group.feature")
@@ -42,10 +43,7 @@ def existing_group(group_context, name):
 
 @given("the muscle group is associated with an exercise")
 def associated_group(group_context):
-    group_context["db"].execute(text(
-        "INSERT INTO muscle_workout (workout_id, muscle_group_id) VALUES (1, :id)"
-    ), {"id": group_context["group_id"]})
-    group_context["db"].commit()
+    associate_group(group_context["db"], group_context["group_id"], group_context["creator"])
 
 
 @given("the muscle group has an anonymized creator")

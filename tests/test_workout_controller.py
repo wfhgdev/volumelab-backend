@@ -1,11 +1,9 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock
-
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
-
-from app.controllers.workout_controller import create_workout, delete_workout, get_workout, list_workouts, \
-    update_workout
+from app.controllers.workout_controller import create_workout, delete_workout, get_workout, list_workouts, update_workout
 from app.models.app_user_model import AppUserModel, RoleUser
 from app.models.workout_model import ExerciseType, WorkoutModel
 from app.schemas.workout_schema import WorkoutCreate, WorkoutUpdate

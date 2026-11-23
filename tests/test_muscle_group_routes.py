@@ -9,6 +9,7 @@ from app.core.database_connection import get_db
 from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.muscle_group_model import MuscleGroupModel
+from tests.catalog_support import associate_group
 
 
 def payload(creator, **changes):
@@ -88,10 +89,7 @@ def test_name_uniqueness_keeps_database_case_sensitivity(muscle_group_api):
 def test_deletion_protects_all_associations(muscle_group_api):
     client, db, admin = muscle_group_api
     record = client.post("/muscle-groups/", json=payload(admin)).json()
-    db.execute(text(
-        "INSERT INTO muscle_workout (workout_id, muscle_group_id) VALUES (1, :id), (2, :id)"
-    ), {"id": record["id"]})
-    db.commit()
+    associate_group(db, record["id"], admin.id, count=2)
     resource = f"/muscle-groups/{record['id']}"
     assert client.delete(resource).status_code == 409
     assert client.get(resource).json() == record

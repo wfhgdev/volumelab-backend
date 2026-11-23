@@ -530,8 +530,8 @@ temporales y no debe ejecutarse para deshacer la adopción de datos de trabajo.
 Desde la carpeta del backend:
 
 ```bash
-./env/Scripts/python.exe -m pytest --ignore=tests/test_workout_rate_crud.py -q
-./env/Scripts/python.exe -m pytest --ignore=tests/test_workout_rate_crud.py --run-postgres -q
+./env/Scripts/python.exe -m pytest -q
+./env/Scripts/python.exe -m pytest --run-postgres -q
 ```
 
 La primera ejecución omite las pruebas PostgreSQL. La segunda las activa y
@@ -540,10 +540,89 @@ Utiliza el servidor y credenciales de `.env` para crear y eliminar bases
 temporales `volumelab_test_<identifier>`; necesita permiso de creación de bases.
 No escribe en `volumelab`. En Linux o macOS, usar `./env/bin/python`.
 
-La exclusión corresponde a la suite antigua de valoraciones presente en `dev`,
-que utiliza la base de trabajo. Su aislamiento está en la tarea de `workout`;
-tras integrarla, ejecutar también la regresión completa sobre datos aislados.
+Esta rama integra el aislamiento de la suite de valoraciones de `workout` y
+ejecuta la regresión completa sobre datos aislados.
 Los 14 escenarios de `features/muscle_group.feature` se ejecutan en inglés.
+
+## Asociaciones entre ejercicios y músculos (`muscle_workout`)
+
+Cada asociación se identifica por la clave compuesta `(workout_id, muscle_group_id)`.
+No tiene un `id` adicional. La API ofrece `POST /muscle-workouts/`,
+`GET /muscle-workouts/` y las operaciones `GET`, `PUT` y `DELETE` en
+`/muscle-workouts/{workout_id}/{muscle_group_id}`.
+
+El campo `muscle_role` de Python y la API se corresponde con la columna existente
+`role_muscular`. Conserva los valores PostgreSQL y calcula su ponderación:
+
+| Rol | Ponderación | Factor |
+| --- | --- | --- |
+| `PRIMARIO` | 100 | 1 |
+| `SECUNDARIO` | 50 | 0,5 |
+| `TERCIARIO` | 10 | 0,1 |
+
+Ejemplo de creación:
+
+```json
+{
+  "workout_id": 1,
+  "muscle_group_id": 2,
+  "muscle_role": "SECUNDARIO"
+}
+```
+
+La respuesta incluye `weighing: 50`. Si se proporciona `weighing`, debe ser un
+entero que coincida con el rol. `PUT` puede cambiar rol y ponderación, que se
+guardan juntos. No permite cambiar la clave compuesta. No se exige que las
+ponderaciones de un ejercicio sumen 100 ni que tenga un único músculo primario.
+
+El listado admite filtros por ambos identificadores y rol, `skip` y `limit`
+(máximo 500), con orden por la clave compuesta. Las referencias inexistentes
+devuelven `404`, los duplicados `409` y los datos inválidos `422`.
+
+Si el ejercicio tiene series, el controlador rechaza altas, cambios y borrados
+con `409`, conservando su distribución muscular. Bloquea la fila del ejercicio
+durante la comprobación y escritura para coordinarse con las nuevas series.
+Las consultas siguen disponibles. Eliminar una asociación permitida devuelve
+`204` y conserva ejercicio y grupo. La autenticación sigue en su tarea común.
+
+### Migración de asociaciones
+
+La revisión `a9d1b6c2e730` tiene etiqueta `muscle_workout`, `down_revision=None`
+y dependencias explícitas en las revisiones existentes `f2a7c8e9d410` y
+`d3c8a51f9072`. Así mantiene las ramas padre independientes y prepara sus tablas
+antes de crear la asociación. No copia ni reescribe sus migraciones.
+
+Verifica o crea el enum, la tabla, su clave compuesta, ambas claves foráneas con
+cascada, la restricción de ponderaciones y el índice por grupo muscular. Una
+tabla existente compatible conserva sus datos; una estructura incompatible
+detiene la migración. Revertir esta rama elimina sus objetos y conserva las
+tablas padre; esa reversión se verifica únicamente en bases desechables.
+
+La aplicación a `volumelab` permanece pendiente de integrar los historiales de
+`workout` y `muscle_group` en `dev`. Antes de aplicarla, avisar al equipo,
+actualizar la rama, integrar `origin/dev` y verificar las revisiones disponibles.
+Una vez cumplido ese requisito, el comando es:
+
+```bash
+./env/Scripts/python.exe -m alembic upgrade muscle_workout@head
+```
+
+Esta rama parte de `dev` e integra localmente las dos tareas padre. Su PR también
+apunta a `dev`; hasta integrar primero esas tareas, mostrará sus cambios como
+dependencias. Las integraciones locales no aplican migraciones a la base de trabajo.
+
+### Pruebas de asociaciones
+
+Las pruebas usan el modelo completo y utilidades compartidas, incluidos los
+tests anteriores de grupos musculares. Se ejecutan con
+`./env/Scripts/python.exe -m pytest --run-postgres -q`.
+
+Los 16 casos Gherkin de `features/muscle_workout.feature` son ejecutables y están
+en inglés. Las pruebas PostgreSQL comprueban migración desde cero, adopción,
+incompatibilidades, reversión sin borrar padres, claves foráneas, ponderaciones,
+duplicados concurrentes y la carrera entre registrar la primera serie y crear
+una asociación. La protección adicional del historial se aplica en la API;
+las escrituras SQL directas conservan las restricciones documentadas de la base.
 
 ## Equipo
 
