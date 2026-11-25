@@ -1,9 +1,14 @@
 import pytest
 from pytest_bdd import scenarios, given, when, then, parsers
+from tests.conftest import create_auth_headers
 
 # Vincular los escenarios definidos en el archivo Gherkin
 scenarios("features/mesocycle.feature")
 
+
+@pytest.fixture(autouse=True)
+def authenticate_client(client, admin_user):
+    client.headers.update(create_auth_headers(admin_user))
 
 
 @pytest.fixture

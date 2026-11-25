@@ -5,6 +5,12 @@ from app.models.app_user_model import AppUserModel, RoleUser
 from app.models.mesocycle_model import MesocycleModel
 from app.models.training_week_model import TrainingWeekModel
 from app.models.workout_session_model import WorkoutSessionModel
+from tests.conftest import create_auth_headers
+
+
+@pytest.fixture(autouse=True)
+def authenticate_client(client, test_user):
+    client.headers.update(create_auth_headers(test_user))
 
 
 @pytest.fixture
@@ -101,7 +107,8 @@ def test_create_workout_session(client, test_user, test_week):
     assert data["created_at"] is not None
 
 
-def test_create_with_missing_user_returns_404(client, test_week):
+def test_create_with_missing_user_returns_404(client, test_week, admin_user):
+    client.headers.update(create_auth_headers(admin_user))
     response = client.post("/workout-sessions/", json=session_payload(999, test_week.id))
 
     assert response.status_code == 404
@@ -127,12 +134,12 @@ def test_create_rejects_week_from_another_user(client, test_user, other_week):
 
 def test_create_rejects_invalid_payload(client, test_user):
     payload = session_payload(test_user.id)
-    payload.pop("user_id")
+    payload.pop("session_date")
 
     response = client.post("/workout-sessions/", json=payload)
 
     assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["body", "user_id"]
+    assert response.json()["detail"][0]["loc"] == ["body", "session_date"]
 
 
 def test_list_and_get_workout_sessions(client, test_user, test_week):
@@ -230,6 +237,7 @@ def test_create_allows_public_session_for_admin(client, db_session):
     db_session.add(admin)
     db_session.commit()
     db_session.refresh(admin)
+    client.headers.update(create_auth_headers(admin))
     add_public_sessions(db_session, admin.id, 20)
 
     response = client.post(
@@ -251,14 +259,16 @@ def test_update_rejects_publishing_over_cliente_quota(client, db_session, test_u
     assert "20 public workout sessions" in response.json()["detail"]
 
 
-def test_update_rejects_reassigning_user_over_public_quota(client, db_session, test_user, other_user):
+def test_update_rejects_reassigning_user_over_public_quota(client, db_session, test_user, other_user, admin_user):
     add_public_sessions(db_session, test_user.id, 20)
+    client.headers.update(create_auth_headers(other_user))
     created = client.post(
         "/workout-sessions/",
         json=session_payload(other_user.id, public=True),
     )
     session_id = created.json()["id"]
 
+    client.headers.update(create_auth_headers(admin_user))
     response = client.put(f"/workout-sessions/{session_id}", json={"user_id": test_user.id})
 
     assert response.status_code == 422
@@ -275,7 +285,8 @@ def test_list_rejects_invalid_pagination(client, query):
 
 
 @pytest.mark.parametrize("query", ["user_id=0", "week_id=0"])
-def test_list_accepts_zero_id_filters(client, query):
+def test_list_accepts_zero_id_filters(client, query, admin_user):
+    client.headers.update(create_auth_headers(admin_user))
     response = client.get(f"/workout-sessions/?{query}")
 
     assert response.status_code == 200

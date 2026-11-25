@@ -2,7 +2,15 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+
 from app.models.workout_session_model import SessionStatus, WorkoutSessionModel
+from tests.conftest import create_auth_headers
+
+
+@pytest.fixture(autouse=True)
+def authenticate_client(client, test_user):
+    client.headers.update(create_auth_headers(test_user))
 
 
 def create_session(db_session, user_id: int, public: bool = True) -> WorkoutSessionModel:

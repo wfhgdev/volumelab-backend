@@ -11,6 +11,12 @@ from app.core.database_connection import Base
 from app.models.training_week_model import TrainingWeekModel
 from app.models.workout_session_model import SessionStatus, WorkoutSessionModel
 from app.schemas.workout_set_schema import WorkoutSetCreate, WorkoutSetUpdate
+from tests.conftest import create_auth_headers
+
+
+@pytest.fixture(autouse=True)
+def authenticate_client(client, test_user):
+    client.headers.update(create_auth_headers(test_user))
 
 
 @pytest.fixture

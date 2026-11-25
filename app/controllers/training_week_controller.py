@@ -16,13 +16,13 @@ from app.core.exceptions import (
 
 def get_training_weeks(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     mesocycle_id: Optional[int] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[TrainingWeekModel]:
     query = select(TrainingWeekModel)
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         query = query.join(MesocycleModel, TrainingWeekModel.mesocycle_id == MesocycleModel.id).filter(
             MesocycleModel.user_id == current_user.id
         )
@@ -33,18 +33,19 @@ def get_training_weeks(
 
 
 def get_training_week_by_id(
-    db: Session, training_week_id: int, current_user: AppUserModel
+    db: Session, training_week_id: int, current_user: AppUserModel | None = None
 ) -> TrainingWeekModel:
     week = db.get(TrainingWeekModel, training_week_id)
     if not week:
         raise TrainingWeekNotFoundException(training_week_id)
-    mesocycle = db.get(MesocycleModel, week.mesocycle_id)
-    ensure_owner_or_admin(current_user, mesocycle.user_id if mesocycle else None, is_private=True)
+    if current_user is not None:
+        mesocycle = db.get(MesocycleModel, week.mesocycle_id)
+        ensure_owner_or_admin(current_user, mesocycle.user_id if mesocycle else None, is_private=True)
     return week
 
 
 def create_training_week(
-    db: Session, training_week: TrainingWeekCreate, current_user: AppUserModel
+    db: Session, training_week: TrainingWeekCreate, current_user: AppUserModel | None = None
 ) -> TrainingWeekModel:
     # 1. Validar fechas de inicio y fin
     if training_week.end_date < training_week.start_date:
@@ -54,7 +55,8 @@ def create_training_week(
     mesocycle = db.get(MesocycleModel, training_week.mesocycle_id)
     if not mesocycle:
         raise MesocycleNotFoundException(training_week.mesocycle_id)
-    ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
+    if current_user is not None:
+        ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
 
     # 3. Validar unicidad de week_order en el mesociclo (RN-16: uq_training_week_order)
     existing_order = db.scalar(
@@ -84,7 +86,7 @@ def update_training_week(
     db: Session,
     training_week_id: int,
     training_week_update: TrainingWeekUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> TrainingWeekModel:
     db_training_week = get_training_week_by_id(db, training_week_id, current_user)
 
@@ -113,7 +115,8 @@ def update_training_week(
         mesocycle = db.get(MesocycleModel, target_mesocycle_id)
         if not mesocycle:
             raise MesocycleNotFoundException(target_mesocycle_id)
-        ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
+        if current_user is not None:
+            ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
 
     # Validar unicidad de orden si cambia orden o mesociclo
     target_week_order = (
@@ -147,7 +150,7 @@ def update_training_week(
 
 
 def delete_training_week(
-    db: Session, training_week_id: int, current_user: AppUserModel
+    db: Session, training_week_id: int, current_user: AppUserModel | None = None
 ) -> None:
     db_training_week = get_training_week_by_id(db, training_week_id, current_user)
     db.delete(db_training_week)

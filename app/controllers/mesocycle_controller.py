@@ -14,14 +14,14 @@ from app.core.exceptions import (
 
 def get_mesocycles(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     user_id: Optional[int] = None,
     status: Optional[str] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[MesocycleModel]:
     query = select(MesocycleModel)
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         query = query.filter(MesocycleModel.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(MesocycleModel.user_id == user_id)
@@ -31,22 +31,26 @@ def get_mesocycles(
     return list(db.scalars(query).all())
 
 
-def get_mesocycle_by_id(db: Session, mesocycle_id: int, current_user: AppUserModel) -> MesocycleModel:
+def get_mesocycle_by_id(db: Session, mesocycle_id: int, current_user: AppUserModel | None = None) -> MesocycleModel:
     mesocycle = db.get(MesocycleModel, mesocycle_id)
     if not mesocycle:
         raise MesocycleNotFoundException(mesocycle_id)
-    ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
+    if current_user is not None:
+        ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
     return mesocycle
 
 
 def create_mesocycle(
-    db: Session, mesocycle: MesocycleCreate, current_user: AppUserModel
+    db: Session, mesocycle: MesocycleCreate, current_user: AppUserModel | None = None
 ) -> MesocycleModel:
     # Validar fechas
     if mesocycle.end_date < mesocycle.start_date:
         raise MesocycleDateValidationException("end_date debe ser mayor o igual a start_date")
 
-    owner_id = resolve_owner_id(current_user, mesocycle.user_id)
+    if current_user is not None:
+        owner_id = resolve_owner_id(current_user, mesocycle.user_id)
+    else:
+        owner_id = mesocycle.user_id
 
     # Validar existencia del usuario
     user = db.get(AppUserModel, owner_id)
@@ -70,7 +74,7 @@ def update_mesocycle(
     db: Session,
     mesocycle_id: int,
     mesocycle_update: MesocycleUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> MesocycleModel:
     db_mesocycle = get_mesocycle_by_id(db, mesocycle_id, current_user)
 
@@ -101,7 +105,7 @@ def update_mesocycle(
     return db_mesocycle
 
 
-def delete_mesocycle(db: Session, mesocycle_id: int, current_user: AppUserModel) -> None:
+def delete_mesocycle(db: Session, mesocycle_id: int, current_user: AppUserModel | None = None) -> None:
     db_mesocycle = get_mesocycle_by_id(db, mesocycle_id, current_user)
     db.delete(db_mesocycle)
     db.commit()

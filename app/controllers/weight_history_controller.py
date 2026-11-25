@@ -21,9 +21,12 @@ def _ensure_user_exists(db: Session, user_id: int) -> None:
 
 
 def create_weight_history(
-    db: Session, payload: WeightHistoryCreate, current_user: AppUserModel
+    db: Session, payload: WeightHistoryCreate, current_user: AppUserModel | None = None
 ) -> WeightHistoryModel:
-    user_id = resolve_owner_id(current_user, payload.user_id)
+    if current_user is not None:
+        user_id = resolve_owner_id(current_user, payload.user_id)
+    else:
+        user_id = payload.user_id
     _ensure_user_exists(db, user_id)
 
     record = WeightHistoryModel(user_id=user_id, weight_kg=payload.weight_kg)
@@ -35,13 +38,13 @@ def create_weight_history(
 
 def list_weight_history(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     skip: int = 0,
     limit: int = 100,
     user_id: int | None = None,
 ) -> list[WeightHistoryModel]:
     query = db.query(WeightHistoryModel)
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         filter_user_id = current_user.id
     else:
         filter_user_id = user_id
@@ -61,7 +64,7 @@ def list_weight_history(
 
 
 def get_weight_history(
-    db: Session, weight_history_id: int, current_user: AppUserModel
+    db: Session, weight_history_id: int, current_user: AppUserModel | None = None
 ) -> WeightHistoryModel:
     record = (
         db.query(WeightHistoryModel)
@@ -73,7 +76,8 @@ def get_weight_history(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Registro de peso no encontrado",
         )
-    ensure_owner_or_admin(current_user, record.user_id, is_private=True)
+    if current_user is not None:
+        ensure_owner_or_admin(current_user, record.user_id, is_private=True)
     return record
 
 
@@ -81,13 +85,16 @@ def update_weight_history(
     db: Session,
     weight_history_id: int,
     payload: WeightHistoryUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> WeightHistoryModel:
     record = get_weight_history(db, weight_history_id, current_user)
 
     update_data = payload.model_dump(exclude_unset=True)
     if "user_id" in update_data and update_data["user_id"] is not None:
-        new_user_id = resolve_owner_id(current_user, update_data["user_id"])
+        if current_user is not None:
+            new_user_id = resolve_owner_id(current_user, update_data["user_id"])
+        else:
+            new_user_id = update_data["user_id"]
         if new_user_id != record.user_id:
             _ensure_user_exists(db, new_user_id)
         record.user_id = new_user_id
@@ -101,7 +108,7 @@ def update_weight_history(
 
 
 def delete_weight_history(
-    db: Session, weight_history_id: int, current_user: AppUserModel
+    db: Session, weight_history_id: int, current_user: AppUserModel | None = None
 ) -> None:
     record = get_weight_history(db, weight_history_id, current_user)
     db.delete(record)

@@ -7,6 +7,12 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 import app.controllers.weight_history_controller as weight_history_controller
 from app.core.exception_handlers import db_error_handler, integrity_error_handler
+from tests.conftest import create_auth_headers
+
+
+@pytest.fixture(autouse=True)
+def authenticate_client(client, admin_user):
+    client.headers.update(create_auth_headers(admin_user))
 
 
 class FakePgError(Exception):

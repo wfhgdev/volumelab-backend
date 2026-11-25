@@ -11,15 +11,16 @@ from app.schemas.muscle_workout_schema import MuscleWorkoutCreate, MuscleWorkout
 
 
 def _lock_workout(
-    db: Session, workout_id: int, current_user: AppUserModel, for_write: bool = True
+    db: Session, workout_id: int, current_user: AppUserModel | None = None, for_write: bool = True
 ) -> WorkoutModel:
     workout = db.query(WorkoutModel).filter(WorkoutModel.id == workout_id).with_for_update().first()
     if workout is None:
         raise HTTPException(404, "Workout not found")
-    if for_write:
-        ensure_owner_or_admin(current_user, workout.created_by, is_private=not workout.public)
-    elif not is_admin(current_user) and workout.created_by != current_user.id and not workout.public:
-        raise HTTPException(404, "Workout not found")
+    if current_user is not None:
+        if for_write:
+            ensure_owner_or_admin(current_user, workout.created_by, is_private=not workout.public)
+        elif not is_admin(current_user) and workout.created_by != current_user.id and not workout.public:
+            raise HTTPException(404, "Workout not found")
     return workout
 
 
@@ -60,7 +61,7 @@ def _find_association(db: Session, workout_id: int, muscle_group_id: int) -> Mus
 
 
 def create_muscle_workout(
-    db: Session, payload: MuscleWorkoutCreate, current_user: AppUserModel
+    db: Session, payload: MuscleWorkoutCreate, current_user: AppUserModel | None = None
 ) -> MuscleWorkoutModel:
     _lock_workout(db, payload.workout_id, current_user, for_write=True)
     _validate_muscle_group(db, payload.muscle_group_id)
@@ -76,7 +77,7 @@ def create_muscle_workout(
 
 def list_muscle_workouts(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     skip: int = 0,
     limit: int = 100,
     workout_id: int | None = None,
@@ -84,7 +85,7 @@ def list_muscle_workouts(
     muscle_role: MuscleRole | None = None,
 ) -> list[MuscleWorkoutModel]:
     query = db.query(MuscleWorkoutModel)
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         query = query.join(WorkoutModel, MuscleWorkoutModel.workout_id == WorkoutModel.id).filter(
             or_(WorkoutModel.created_by == current_user.id, WorkoutModel.public.is_(True))
         )
@@ -99,10 +100,10 @@ def list_muscle_workouts(
 
 
 def get_muscle_workout(
-    db: Session, workout_id: int, muscle_group_id: int, current_user: AppUserModel
+    db: Session, workout_id: int, muscle_group_id: int, current_user: AppUserModel | None = None
 ) -> MuscleWorkoutModel:
     workout = db.query(WorkoutModel).filter(WorkoutModel.id == workout_id).first()
-    if workout is None or (not is_admin(current_user) and workout.created_by != current_user.id and not workout.public):
+    if workout is None or (current_user is not None and not is_admin(current_user) and workout.created_by != current_user.id and not workout.public):
         raise HTTPException(404, "Muscle association not found")
     return _find_association(db, workout_id, muscle_group_id)
 
@@ -112,7 +113,7 @@ def update_muscle_workout(
     workout_id: int,
     muscle_group_id: int,
     payload: MuscleWorkoutUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> MuscleWorkoutModel:
     _lock_workout(db, workout_id, current_user, for_write=True)
     record = _find_association(db, workout_id, muscle_group_id)
@@ -130,7 +131,7 @@ def update_muscle_workout(
 
 
 def delete_muscle_workout(
-    db: Session, workout_id: int, muscle_group_id: int, current_user: AppUserModel
+    db: Session, workout_id: int, muscle_group_id: int, current_user: AppUserModel | None = None
 ) -> None:
     _lock_workout(db, workout_id, current_user, for_write=True)
     record = _find_association(db, workout_id, muscle_group_id)

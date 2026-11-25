@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from app.core.database_connection import get_db
+from app.core.dependencies import get_current_user
 from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.muscle_group_model import MuscleGroupModel
@@ -27,10 +28,24 @@ class _FakePgError(Exception):
 def client_with_mock_db():
     db = MagicMock()
 
+    admin = AppUserModel(
+        id=1,
+        email="admin@volumelab.com",
+        name="Admin",
+        lastname="System",
+        password_hash="...",
+        role="ADMIN",
+        status="ACTIVO",
+    )
+
     def override_get_db():
         yield db
 
+    def override_current_user():
+        return admin
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
     client = TestClient(app, raise_server_exceptions=False)
     try:
         yield client, db
@@ -68,7 +83,8 @@ def test_creation_by_client_is_forbidden(muscle_group_api):
 def test_creation_requires_existing_administrator(muscle_group_api):
     client, _, admin = muscle_group_api
     assert client.post("/muscle-groups/", json=payload(admin, created_by=999)).status_code == 404
-    assert client.post("/muscle-groups/", json={"name": "Chest"}).status_code == 422
+    assert client.post("/muscle-groups/", json={"name": ""}).status_code == 422
+    assert client.post("/muscle-groups/", json={"name": "Chest Auto Creator"}).status_code == 201
 
 
 def test_duplicates_are_rejected_on_create_and_update(muscle_group_api):

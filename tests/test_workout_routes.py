@@ -6,9 +6,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from app.core.database_connection import get_db
+from app.core.dependencies import get_current_user
 from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.workout_model import WorkoutModel
+from tests.conftest import create_auth_headers
 
 
 def create_payload(user, **changes):
@@ -35,10 +37,24 @@ def client_with_mock_db():
     db = MagicMock()
     db.query.return_value.filter.return_value.count.return_value = 0
 
+    user = AppUserModel(
+        id=1,
+        email="user@volumelab.com",
+        name="User",
+        lastname="System",
+        password_hash="...",
+        role="CLIENTE",
+        status="ACTIVO",
+    )
+
     def override_get_db():
         yield db
 
+    def override_current_user():
+        return user
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
     client = TestClient(app, raise_server_exceptions=False)
     try:
         yield client, db
@@ -107,7 +123,9 @@ def test_duplicate_create_and_update_return_conflict(workout_api):
 
 
 def test_missing_creator_and_invalid_payload(workout_api):
-    client, _, user = workout_api
+    client, db, user = workout_api
+    user.role = "ADMIN"
+    db.commit()
     assert client.post("/workouts/", json=create_payload(user, created_by=999)).status_code == 404
     assert client.post("/workouts/", json=create_payload(user, allow_negative_ballast=True)).status_code == 422
     assert client.post("/workouts/", json=create_payload(user, name=" ")).status_code == 422
@@ -148,6 +166,7 @@ def test_publication_reassignment_and_unchanged_visibility(workout_api):
     other = AppUserModel(name="Other", email="other@example.com", password_hash="test", role="ADMIN", status="ACTIVO")
     db.add(other)
     db.commit()
+    client.headers.update(create_auth_headers(other))
     foreign = client.post("/workouts/", json=create_payload(other, name="Other exercise", public=True)).json()
     assert client.put(f"/workouts/{foreign['id']}", json={"created_by": user.id}).status_code == 409
     assert client.put(f"/workouts/{foreign['id']}", json={"created_by": 999}).status_code == 404
@@ -165,6 +184,8 @@ def test_type_change_requires_no_recorded_sets(workout_api):
 
 def test_anonymized_workout_can_be_read_and_edited(workout_api):
     client, db, user = workout_api
+    user.role = "ADMIN"
+    db.commit()
     record = seed_workouts(db, user, 1)[0]
     record.created_by = None
     db.commit()

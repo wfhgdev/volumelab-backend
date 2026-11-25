@@ -7,6 +7,7 @@ from app.models.app_user_model import AppUserModel, RoleUser
 from app.models.mesocycle_model import MesocycleModel
 from app.models.training_week_model import TrainingWeekModel
 from app.models.workout_session_model import WorkoutSessionModel
+from tests.conftest import create_auth_headers
 
 
 scenarios("../features/workout_session.feature")
@@ -106,6 +107,7 @@ def existing_workout_session(db_session, bdd_context, user_id):
 def create_session_with_week(client, bdd_context, user_id, week_owner_id):
     user = bdd_context["users"][user_id]
     week = bdd_context["weeks"][week_owner_id]
+    client.headers.update(create_auth_headers(user))
     bdd_context["last_response"] = client.post(
         "/workout-sessions/",
         json=_session_payload(user.id, week.id),
@@ -115,6 +117,7 @@ def create_session_with_week(client, bdd_context, user_id, week_owner_id):
 @when(parsers.parse("creo una sesión pública para el usuario {user_id:d}"))
 def create_public_session(client, bdd_context, user_id):
     user = bdd_context["users"][user_id]
+    client.headers.update(create_auth_headers(user))
     bdd_context["last_response"] = client.post(
         "/workout-sessions/",
         json=_session_payload(user.id, public=True),
@@ -122,7 +125,10 @@ def create_public_session(client, bdd_context, user_id):
 
 
 @when("actualizo el usuario de esa sesión a nulo")
-def update_session_user_to_null(client, bdd_context):
+def update_session_user_to_null(client, db_session, bdd_context):
+    session = db_session.get(WorkoutSessionModel, bdd_context["session_id"])
+    user = db_session.get(AppUserModel, session.user_id)
+    client.headers.update(create_auth_headers(user))
     bdd_context["last_response"] = client.put(
         f"/workout-sessions/{bdd_context['session_id']}",
         json={"user_id": None},

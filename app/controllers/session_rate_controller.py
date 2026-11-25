@@ -15,7 +15,7 @@ from app.schemas.session_rate_schema import (
 
 
 def create_session_rate(
-    db: Session, session_rate: SessionRateCreate, current_user: AppUserModel
+    db: Session, session_rate: SessionRateCreate, current_user: AppUserModel | None = None
 ) -> SessionRateModel:
     """
     Crea una nueva valoración para una sesión de entrenamiento pública.
@@ -24,7 +24,7 @@ def create_session_rate(
     - RN-18: Comprueba unicidad de voto por usuario y sesión (uq_session_rate_user).
     - Valida trigger trg_session_rate_check_public (la sesión debe ser pública).
     """
-    owner_id = resolve_owner_id(current_user, session_rate.user_id)
+    owner_id = resolve_owner_id(current_user, session_rate.user_id) if current_user else session_rate.user_id
 
     existing_rate = db.query(SessionRateModel).filter(
         SessionRateModel.id_workout_session == session_rate.id_workout_session,
@@ -94,7 +94,7 @@ def create_session_rate(
 
 def get_session_rates(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     skip: int = 0,
     limit: int = 100,
     id_workout_session: Optional[int] = None,
@@ -103,7 +103,7 @@ def get_session_rates(
     """Obtiene una lista paginada de valoraciones de sesiones con filtros opcionales."""
     query = db.query(SessionRateModel)
 
-    if not is_admin(current_user):
+    if current_user and not is_admin(current_user):
         query = query.filter(SessionRateModel.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(SessionRateModel.user_id == user_id)
@@ -115,7 +115,7 @@ def get_session_rates(
 
 
 def get_session_rate_by_id(
-    db: Session, rate_id: int, current_user: AppUserModel
+    db: Session, rate_id: int, current_user: AppUserModel | None = None
 ) -> SessionRateModel:
     """Obtiene una valoración de sesión por su ID primario."""
     db_rate = db.query(SessionRateModel).filter(SessionRateModel.id == rate_id).first()
@@ -124,15 +124,16 @@ def get_session_rate_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Valoración con id {rate_id} no encontrada.",
         )
-    ensure_owner_or_admin(current_user, db_rate.user_id, is_private=True)
+    if current_user:
+        ensure_owner_or_admin(current_user, db_rate.user_id, is_private=True)
     return db_rate
 
 
 def get_session_rate_by_session_and_user(
-    db: Session, id_workout_session: int, user_id: int, current_user: AppUserModel
+    db: Session, id_workout_session: int, user_id: int, current_user: AppUserModel | None = None
 ) -> SessionRateModel:
     """Obtiene la valoración que un usuario específico hizo a una sesión de entrenamiento."""
-    if not is_admin(current_user) and user_id != current_user.id:
+    if current_user and not is_admin(current_user) and user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"El usuario {user_id} no ha valorado la sesión {id_workout_session}.",
@@ -155,7 +156,7 @@ def update_session_rate(
     db: Session,
     rate_id: int,
     session_rate_update: SessionRateUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> SessionRateModel:
     """
     Actualiza la puntuación de una valoración de sesión existente.
@@ -177,12 +178,12 @@ def update_session_rate(
 
 
 def upsert_session_rate(
-    db: Session, session_rate: SessionRateCreate, current_user: AppUserModel
+    db: Session, session_rate: SessionRateCreate, current_user: AppUserModel | None = None
 ) -> SessionRateModel:
     """
     Crea o actualiza la valoración de un usuario sobre una sesión (RN-18).
     """
-    owner_id = resolve_owner_id(current_user, session_rate.user_id)
+    owner_id = resolve_owner_id(current_user, session_rate.user_id) if current_user else session_rate.user_id
 
     existing_rate = db.query(SessionRateModel).filter(
         SessionRateModel.id_workout_session == session_rate.id_workout_session,
@@ -199,7 +200,7 @@ def upsert_session_rate(
 
 
 def delete_session_rate(
-    db: Session, rate_id: int, current_user: AppUserModel
+    db: Session, rate_id: int, current_user: AppUserModel | None = None
 ) -> None:
     """Elimina una valoración de sesión por su ID primario."""
     db_rate = get_session_rate_by_id(db, rate_id, current_user)
@@ -208,7 +209,7 @@ def delete_session_rate(
 
 
 def get_session_score(
-    db: Session, id_workout_session: int, current_user: AppUserModel
+    db: Session, id_workout_session: int, current_user: AppUserModel | None = None
 ) -> dict:
     """
     Obtiene la puntuación media y el total de votos para una sesión dada (v_session_score).
@@ -219,7 +220,7 @@ def get_session_score(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Sesión con id {id_workout_session} no encontrada",
         )
-    if not is_admin(current_user) and session.user_id != current_user.id and not session.public:
+    if current_user and not is_admin(current_user) and session.user_id != current_user.id and not session.public:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Sesión con id {id_workout_session} no encontrada",

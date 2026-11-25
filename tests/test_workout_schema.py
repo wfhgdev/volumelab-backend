@@ -18,12 +18,17 @@ def test_creation_preserves_database_defaults_and_trims_name():
 
 @pytest.mark.parametrize("changes", [
     {"name": ""}, {"name": "   "}, {"name": "x" * 201},
-    {"type": "INVALID"}, {"created_by": 0}, {"created_by": None},
+    {"type": "INVALID"}, {"created_by": 0},
     {"allow_negative_ballast": True}, {"id": 5},
 ])
 def test_creation_rejects_invalid_input(changes):
     with pytest.raises(ValidationError):
         WorkoutCreate.model_validate({"name": "Squat", "type": "DINAMICO", "created_by": 1} | changes)
+
+
+def test_creation_allows_optional_creator():
+    item = WorkoutCreate.model_validate({"name": "Squat", "type": "DINAMICO"})
+    assert item.created_by is None
 
 
 def test_bodyweight_exercise_can_allow_assistance():

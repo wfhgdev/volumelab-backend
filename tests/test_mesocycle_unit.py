@@ -8,6 +8,7 @@ from app.core.exceptions import (
     UserNotFoundException,
     MesocycleDateValidationException
 )
+from tests.conftest import create_auth_headers
 
 
 class TestMesocycleSchemaValidations:
@@ -108,6 +109,10 @@ class TestMesocycleController:
 
 class TestMesocycleHTTPRoutes:
     """Pruebas unitarias de las rutas HTTP y manejo de códigos de error."""
+
+    @pytest.fixture(autouse=True)
+    def authenticate_client(self, client, admin_user):
+        client.headers.update(create_auth_headers(admin_user))
 
     def test_http_create_mesocycle_201(self, client, test_user):
         payload = {

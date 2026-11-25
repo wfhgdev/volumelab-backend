@@ -7,8 +7,14 @@ from sqlalchemy import text
 
 from app.models.training_week_model import TrainingWeekModel
 from app.models.workout_session_model import SessionStatus, WorkoutSessionModel
+from tests.conftest import create_auth_headers
 
 scenarios("features/workout_set.feature")
+
+
+@pytest.fixture(autouse=True)
+def authenticate_client(client, test_user):
+    client.headers.update(create_auth_headers(test_user))
 
 
 @pytest.fixture

@@ -46,9 +46,12 @@ def _validate_unique_name(
 def create_muscle_group(
     db: Session,
     payload: MuscleGroupCreate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> MuscleGroupModel:
-    creator_id = resolve_owner_id(current_user, payload.created_by)
+    if current_user is not None:
+        creator_id = resolve_owner_id(current_user, payload.created_by)
+    else:
+        creator_id = payload.created_by
     _validate_administrator(db, creator_id)
     _validate_unique_name(db, payload.name)
     data = payload.model_dump()
@@ -85,7 +88,7 @@ def update_muscle_group(
     db: Session,
     muscle_group_id: int,
     payload: MuscleGroupUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> MuscleGroupModel:
     record = _find_muscle_group(db, muscle_group_id, lock=True)
     changes = payload.model_dump(exclude_unset=True)
@@ -103,7 +106,7 @@ def update_muscle_group(
 def delete_muscle_group(
     db: Session,
     muscle_group_id: int,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> None:
     record = _find_muscle_group(db, muscle_group_id, lock=True)
     if inspect(db.get_bind()).has_table("muscle_workout"):

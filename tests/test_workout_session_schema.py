@@ -26,12 +26,16 @@ def test_create_accepts_valid_payload():
     assert payload.status == SessionStatusEnum.ABIERTO
 
 
-@pytest.mark.parametrize("field", ["user_id", "session_date"])
-def test_create_requires_user_id_and_session_date(field):
-    data = {"user_id": 1, "session_date": date(2026, 11, 21)}
-    data.pop(field)
+def test_create_requires_session_date():
+    data = {"user_id": 1}
     with pytest.raises(ValidationError):
         WorkoutSessionCreate(**data)
+
+
+def test_create_user_id_is_optional():
+    data = {"session_date": date(2026, 11, 21)}
+    session = WorkoutSessionCreate(**data)
+    assert session.user_id is None
 
 
 @pytest.mark.parametrize("user_id", [0, -1])

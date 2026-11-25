@@ -15,7 +15,7 @@ from app.schemas.workout_rate_schema import (
 
 
 def create_workout_rate(
-    db: Session, workout_rate: WorkoutRateCreate, current_user: AppUserModel
+    db: Session, workout_rate: WorkoutRateCreate, current_user: AppUserModel | None = None
 ) -> WorkoutRateModel:
     """
     Crea una nueva valoración para un ejercicio público y activo.
@@ -24,7 +24,7 @@ def create_workout_rate(
     - RN-18: Comprueba unicidad de voto por usuario y ejercicio (uq_workout_rate_user).
     - Valida trigger trg_workout_rate_check_public (el ejercicio debe ser público y estar activo).
     """
-    owner_id = resolve_owner_id(current_user, workout_rate.user_id)
+    owner_id = resolve_owner_id(current_user, workout_rate.user_id) if current_user else workout_rate.user_id
 
     existing_rate = db.query(WorkoutRateModel).filter(
         WorkoutRateModel.id_workout == workout_rate.id_workout,
@@ -94,7 +94,7 @@ def create_workout_rate(
 
 def get_workout_rates(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     skip: int = 0,
     limit: int = 100,
     id_workout: Optional[int] = None,
@@ -103,7 +103,7 @@ def get_workout_rates(
     """Obtiene una lista paginada de valoraciones con filtros opcionales."""
     query = db.query(WorkoutRateModel)
 
-    if not is_admin(current_user):
+    if current_user and not is_admin(current_user):
         query = query.filter(WorkoutRateModel.user_id == current_user.id)
     elif user_id is not None:
         query = query.filter(WorkoutRateModel.user_id == user_id)
@@ -115,7 +115,7 @@ def get_workout_rates(
 
 
 def get_workout_rate_by_id(
-    db: Session, rate_id: int, current_user: AppUserModel
+    db: Session, rate_id: int, current_user: AppUserModel | None = None
 ) -> WorkoutRateModel:
     """Obtiene una valoración por su ID primario."""
     db_rate = db.query(WorkoutRateModel).filter(WorkoutRateModel.id == rate_id).first()
@@ -124,15 +124,16 @@ def get_workout_rate_by_id(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Valoración con id {rate_id} no encontrada.",
         )
-    ensure_owner_or_admin(current_user, db_rate.user_id, is_private=True)
+    if current_user:
+        ensure_owner_or_admin(current_user, db_rate.user_id, is_private=True)
     return db_rate
 
 
 def get_workout_rate_by_workout_and_user(
-    db: Session, id_workout: int, user_id: int, current_user: AppUserModel
+    db: Session, id_workout: int, user_id: int, current_user: AppUserModel | None = None
 ) -> WorkoutRateModel:
     """Obtiene la valoración que un usuario específico hizo a un ejercicio."""
-    if not is_admin(current_user) and user_id != current_user.id:
+    if current_user and not is_admin(current_user) and user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"El usuario {user_id} no ha valorado el ejercicio {id_workout}.",
@@ -155,7 +156,7 @@ def update_workout_rate(
     db: Session,
     rate_id: int,
     workout_rate_update: WorkoutRateUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> WorkoutRateModel:
     """
     Actualiza la puntuación de una valoración existente.
@@ -177,12 +178,12 @@ def update_workout_rate(
 
 
 def upsert_workout_rate(
-    db: Session, workout_rate: WorkoutRateCreate, current_user: AppUserModel
+    db: Session, workout_rate: WorkoutRateCreate, current_user: AppUserModel | None = None
 ) -> WorkoutRateModel:
     """
     Crea o actualiza la valoración de un usuario sobre un ejercicio (RN-18: 1 voto por usuario y recurso actualizable).
     """
-    owner_id = resolve_owner_id(current_user, workout_rate.user_id)
+    owner_id = resolve_owner_id(current_user, workout_rate.user_id) if current_user else workout_rate.user_id
 
     existing_rate = db.query(WorkoutRateModel).filter(
         WorkoutRateModel.id_workout == workout_rate.id_workout,
@@ -199,7 +200,7 @@ def upsert_workout_rate(
 
 
 def delete_workout_rate(
-    db: Session, rate_id: int, current_user: AppUserModel
+    db: Session, rate_id: int, current_user: AppUserModel | None = None
 ) -> None:
     """Elimina una valoración por su ID primario."""
     db_rate = get_workout_rate_by_id(db, rate_id, current_user)
@@ -208,7 +209,7 @@ def delete_workout_rate(
 
 
 def get_workout_score(
-    db: Session, id_workout: int, current_user: AppUserModel
+    db: Session, id_workout: int, current_user: AppUserModel | None = None
 ) -> dict:
     """
     Obtiene la puntuación media y el total de votos para un ejercicio dado (v_workout_score).
@@ -219,7 +220,7 @@ def get_workout_score(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Ejercicio con id {id_workout} no encontrado",
         )
-    if not is_admin(current_user) and workout.created_by != current_user.id and not workout.public:
+    if current_user and not is_admin(current_user) and workout.created_by != current_user.id and not workout.public:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Ejercicio con id {id_workout} no encontrado",

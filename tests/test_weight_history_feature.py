@@ -5,10 +5,12 @@ from pytest_bdd import given, parsers, scenario, then, when
 from sqlalchemy import text
 
 from app.models.weight_history_model import WeightHistoryModel
+from tests.conftest import create_auth_headers
 
 
 @pytest.fixture
-def bdd_context(client, db_session):
+def bdd_context(client, db_session, admin_user):
+    client.headers.update(create_auth_headers(admin_user))
     return {
         "db": db_session,
         "client": client,

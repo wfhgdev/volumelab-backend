@@ -23,8 +23,8 @@ def client_with_mock_db():
     admin = AppUserModel(
         id=1,
         email="admin@volumelab.com",
-        first_name="Admin",
-        last_name="System",
+        name="Admin",
+        lastname="System",
         password_hash="...",
         role="ADMIN",
         status="ACTIVO",

@@ -16,7 +16,7 @@ def test_creation_trims_name_and_preserves_optional_description():
 
 @pytest.mark.parametrize("changes", [
     {"name": ""}, {"name": " "}, {"name": "x" * 151}, {"name": None},
-    {"created_by": 0}, {"created_by": -1}, {"created_by": None},
+    {"created_by": 0}, {"created_by": -1},
     {"id": 5}, {"state": True},
 ])
 def test_creation_rejects_invalid_input(changes):
@@ -24,9 +24,9 @@ def test_creation_rejects_invalid_input(changes):
         MuscleGroupCreate.model_validate({"name": "Chest", "created_by": 1} | changes)
 
 
-def test_creation_requires_creator():
-    with pytest.raises(ValidationError):
-        MuscleGroupCreate.model_validate({"name": "Chest"})
+def test_creation_allows_optional_creator():
+    item = MuscleGroupCreate.model_validate({"name": "Chest"})
+    assert item.created_by is None
 
 
 def test_update_preserves_omissions_and_can_clear_description():

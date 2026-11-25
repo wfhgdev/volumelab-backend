@@ -7,6 +7,11 @@ from app.models.session_rate_model import SessionRateModel
 
 @pytest.fixture
 def bdd_context(client, db_session):
+    ensure_user(db_session, 1)
+    from app.models.app_user_model import AppUserModel
+    from tests.conftest import create_auth_headers
+    user = db_session.get(AppUserModel, 1)
+    client.headers.update(create_auth_headers(user))
     return {"client": client, "db": db_session, "response": None}
 
 
@@ -28,10 +33,10 @@ def ensure_user(db_session, user_id: int) -> None:
                 :email,
                 'hash',
                 'BDD Rate',
-                'CLIENTE',
+                'ADMIN',
                 'ACTIVO'
             )
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET role = 'ADMIN', status = 'ACTIVO'
             """
         ),
         {"id": user_id, "email": f"bdd_rate_user_{user_id}@example.com"},

@@ -15,7 +15,7 @@ MAX_PUBLIC_SESSIONS_PER_CLIENT = 20
 
 def get_workout_sessions(
     db: Session,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
     user_id: Optional[int] = None,
     week_id: Optional[int] = None,
     status: Optional[SessionStatusEnum] = None,
@@ -24,7 +24,7 @@ def get_workout_sessions(
     limit: int = 100,
 ) -> List[WorkoutSessionModel]:
     query = select(WorkoutSessionModel)
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         query = query.filter(
             or_(
                 WorkoutSessionModel.user_id == current_user.id,
@@ -48,7 +48,7 @@ def get_workout_sessions(
 
 
 def get_workout_session_by_id(
-    db: Session, workout_session_id: int, current_user: AppUserModel
+    db: Session, workout_session_id: int, current_user: AppUserModel | None = None
 ) -> WorkoutSessionModel:
     workout_session = db.get(WorkoutSessionModel, workout_session_id)
     if not workout_session:
@@ -56,7 +56,7 @@ def get_workout_session_by_id(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail=f"Workout session with id {workout_session_id} not found",
         )
-    if not is_admin(current_user) and workout_session.user_id != current_user.id and not workout_session.public:
+    if current_user is not None and not is_admin(current_user) and workout_session.user_id != current_user.id and not workout_session.public:
         raise HTTPException(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail=f"Workout session with id {workout_session_id} not found",
@@ -122,9 +122,12 @@ def _validate_public_session_quota(
 
 
 def create_workout_session(
-    db: Session, workout_session: WorkoutSessionCreate, current_user: AppUserModel
+    db: Session, workout_session: WorkoutSessionCreate, current_user: AppUserModel | None = None
 ) -> WorkoutSessionModel:
-    owner_id = resolve_owner_id(current_user, workout_session.user_id)
+    if current_user is not None:
+        owner_id = resolve_owner_id(current_user, workout_session.user_id)
+    else:
+        owner_id = workout_session.user_id
     user = _get_user_or_404(db, owner_id)
 
     if workout_session.week_id is not None:
@@ -154,7 +157,7 @@ def update_workout_session(
     db: Session,
     workout_session_id: int,
     workout_session_update: WorkoutSessionUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> WorkoutSessionModel:
     db_workout_session = db.get(WorkoutSessionModel, workout_session_id)
     if not db_workout_session:
@@ -162,16 +165,20 @@ def update_workout_session(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail=f"Workout session with id {workout_session_id} not found",
         )
-    ensure_owner_or_admin(
-        current_user,
-        db_workout_session.user_id,
-        is_private=not db_workout_session.public,
-    )
+    if current_user is not None:
+        ensure_owner_or_admin(
+            current_user,
+            db_workout_session.user_id,
+            is_private=not db_workout_session.public,
+        )
 
     update_data = workout_session_update.model_dump(exclude_unset=True)
 
     if "user_id" in update_data and update_data["user_id"] is not None:
-        target_user_id = resolve_owner_id(current_user, update_data["user_id"])
+        if current_user is not None:
+            target_user_id = resolve_owner_id(current_user, update_data["user_id"])
+        else:
+            target_user_id = update_data["user_id"]
         update_data["user_id"] = target_user_id
     else:
         target_user_id = db_workout_session.user_id
@@ -214,7 +221,7 @@ def update_workout_session(
 
 
 def delete_workout_session(
-    db: Session, workout_session_id: int, current_user: AppUserModel
+    db: Session, workout_session_id: int, current_user: AppUserModel | None = None
 ) -> None:
     db_workout_session = db.get(WorkoutSessionModel, workout_session_id)
     if not db_workout_session:
@@ -222,10 +229,11 @@ def delete_workout_session(
             status_code=http_status.HTTP_404_NOT_FOUND,
             detail=f"Workout session with id {workout_session_id} not found",
         )
-    ensure_owner_or_admin(
-        current_user,
-        db_workout_session.user_id,
-        is_private=not db_workout_session.public,
-    )
+    if current_user is not None:
+        ensure_owner_or_admin(
+            current_user,
+            db_workout_session.user_id,
+            is_private=not db_workout_session.public,
+        )
     db.delete(db_workout_session)
     db.commit()

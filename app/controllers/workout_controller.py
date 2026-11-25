@@ -52,9 +52,12 @@ def _validate_unique_name(db: Session, name: str, workout_id: int | None = None)
 def create_workout(
     db: Session,
     payload: WorkoutCreate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> WorkoutModel:
-    creator_id = resolve_owner_id(current_user, payload.created_by)
+    if current_user is not None:
+        creator_id = resolve_owner_id(current_user, payload.created_by)
+    else:
+        creator_id = payload.created_by
     _validate_creator_and_limit(db, creator_id, payload.public)
     _validate_unique_name(db, payload.name)
     data = payload.model_dump()
@@ -115,11 +118,11 @@ def update_workout(
     db: Session,
     workout_id: int,
     payload: WorkoutUpdate,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> WorkoutModel:
     workout = _find_workout(db, workout_id, lock=True)
 
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         if workout.created_by != current_user.id:
             if workout.public:
                 raise HTTPException(403, "No tienes permiso para modificar este ejercicio")
@@ -161,11 +164,11 @@ def update_workout(
 def delete_workout(
     db: Session,
     workout_id: int,
-    current_user: AppUserModel,
+    current_user: AppUserModel | None = None,
 ) -> None:
     workout = _find_workout(db, workout_id, lock=True)
 
-    if not is_admin(current_user):
+    if current_user is not None and not is_admin(current_user):
         if workout.created_by != current_user.id:
             if workout.public:
                 raise HTTPException(403, "No tienes permiso para modificar este ejercicio")

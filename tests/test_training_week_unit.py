@@ -12,6 +12,7 @@ from app.core.exceptions import (
     TrainingWeekDateValidationException,
     MesocycleNotFoundException
 )
+from tests.conftest import create_auth_headers
 
 
 class TestTrainingWeekSchemaValidations:
@@ -160,6 +161,10 @@ class TestTrainingWeekController:
 
 class TestTrainingWeekHTTPRoutes:
     """Pruebas unitarias de las rutas HTTP para TrainingWeek."""
+
+    @pytest.fixture(autouse=True)
+    def authenticate_client(self, client, admin_user):
+        client.headers.update(create_auth_headers(admin_user))
 
     def test_http_create_training_week_201(self, client, test_mesocycle):
         payload = {
