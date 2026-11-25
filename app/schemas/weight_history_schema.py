@@ -21,8 +21,18 @@ class WeightHistoryBase(BaseModel):
         return value
 
 
-class WeightHistoryCreate(WeightHistoryBase):
-    pass
+class WeightHistoryCreate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int | None = Field(default=None, gt=0)
+    weight_kg: Decimal = Field(gt=0, max_digits=6, decimal_places=2)
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def validate_user_id_not_bool(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("user_id debe ser un entero válido")
+        return value
 
 
 class WeightHistoryUpdate(BaseModel):

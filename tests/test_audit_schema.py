@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.models.audit_model import AuditAction
-from app.schemas.audit_schema import AuditCreate, AuditResponse, AuditUpdate
+from app.schemas.audit_schema import AuditCreate, AuditResponse
 
 
 def test_audit_create_minimal_cleans_text_and_allows_nulls():
@@ -60,25 +60,6 @@ def test_audit_create_rejects_oversized_fields():
         AuditCreate(entity="workout", record_id="1" * 61, action="INSERT")
     with pytest.raises(ValidationError):
         AuditCreate(entity="workout", record_id="1", action="INSERT", endpoint="/" + "a" * 255)
-
-
-def test_audit_update_accepts_partial_payload_and_nullable_clear():
-    payload = AuditUpdate(
-        action="UPDATE",
-        endpoint=None,
-        user_id=None,
-    )
-    assert payload.action == AuditAction.UPDATE
-    assert "endpoint" in payload.model_fields_set
-    assert payload.endpoint is None
-    assert "user_id" in payload.model_fields_set
-    assert payload.user_id is None
-
-
-@pytest.mark.parametrize("field", ["entity", "record_id", "action"])
-def test_audit_update_rejects_explicit_null_on_non_nullable_fields(field):
-    with pytest.raises(ValidationError):
-        AuditUpdate(**{field: None})
 
 
 def test_audit_response_serializes_exact_v4_fields():

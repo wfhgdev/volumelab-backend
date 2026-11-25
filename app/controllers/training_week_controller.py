@@ -1,6 +1,8 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
+from app.core.permissions import ensure_owner_or_admin, is_admin
+from app.models.app_user_model import AppUserModel
 from app.models.training_week_model import TrainingWeekModel
 from app.models.mesocycle_model import MesocycleModel
 from app.schemas.training_week_schema import TrainingWeekCreate, TrainingWeekUpdate
@@ -14,33 +16,45 @@ from app.core.exceptions import (
 
 def get_training_weeks(
     db: Session,
+    current_user: AppUserModel,
     mesocycle_id: Optional[int] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[TrainingWeekModel]:
     query = select(TrainingWeekModel)
+    if not is_admin(current_user):
+        query = query.join(MesocycleModel, TrainingWeekModel.mesocycle_id == MesocycleModel.id).filter(
+            MesocycleModel.user_id == current_user.id
+        )
     if mesocycle_id is not None:
         query = query.filter(TrainingWeekModel.mesocycle_id == mesocycle_id)
     query = query.order_by(TrainingWeekModel.week_order.asc()).offset(skip).limit(limit)
     return list(db.scalars(query).all())
 
 
-def get_training_week_by_id(db: Session, training_week_id: int) -> TrainingWeekModel:
+def get_training_week_by_id(
+    db: Session, training_week_id: int, current_user: AppUserModel
+) -> TrainingWeekModel:
     week = db.get(TrainingWeekModel, training_week_id)
     if not week:
         raise TrainingWeekNotFoundException(training_week_id)
+    mesocycle = db.get(MesocycleModel, week.mesocycle_id)
+    ensure_owner_or_admin(current_user, mesocycle.user_id if mesocycle else None, is_private=True)
     return week
 
 
-def create_training_week(db: Session, training_week: TrainingWeekCreate) -> TrainingWeekModel:
+def create_training_week(
+    db: Session, training_week: TrainingWeekCreate, current_user: AppUserModel
+) -> TrainingWeekModel:
     # 1. Validar fechas de inicio y fin
     if training_week.end_date < training_week.start_date:
         raise TrainingWeekDateValidationException("end_date debe ser mayor o igual a start_date")
 
-    # 2. Validar que exista el mesociclo padre
+    # 2. Validar que exista el mesociclo padre y pertenezca al usuario
     mesocycle = db.get(MesocycleModel, training_week.mesocycle_id)
     if not mesocycle:
         raise MesocycleNotFoundException(training_week.mesocycle_id)
+    ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
 
     # 3. Validar unicidad de week_order en el mesociclo (RN-16: uq_training_week_order)
     existing_order = db.scalar(
@@ -69,11 +83,10 @@ def create_training_week(db: Session, training_week: TrainingWeekCreate) -> Trai
 def update_training_week(
     db: Session,
     training_week_id: int,
-    training_week_update: TrainingWeekUpdate
+    training_week_update: TrainingWeekUpdate,
+    current_user: AppUserModel,
 ) -> TrainingWeekModel:
-    db_training_week = db.get(TrainingWeekModel, training_week_id)
-    if not db_training_week:
-        raise TrainingWeekNotFoundException(training_week_id)
+    db_training_week = get_training_week_by_id(db, training_week_id, current_user)
 
     # Validar coherencia de fechas combinadas
     effective_start = (
@@ -100,6 +113,7 @@ def update_training_week(
         mesocycle = db.get(MesocycleModel, target_mesocycle_id)
         if not mesocycle:
             raise MesocycleNotFoundException(target_mesocycle_id)
+        ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
 
     # Validar unicidad de orden si cambia orden o mesociclo
     target_week_order = (
@@ -132,10 +146,9 @@ def update_training_week(
     return db_training_week
 
 
-def delete_training_week(db: Session, training_week_id: int) -> None:
-    db_training_week = db.get(TrainingWeekModel, training_week_id)
-    if not db_training_week:
-        raise TrainingWeekNotFoundException(training_week_id)
-
+def delete_training_week(
+    db: Session, training_week_id: int, current_user: AppUserModel
+) -> None:
+    db_training_week = get_training_week_by_id(db, training_week_id, current_user)
     db.delete(db_training_week)
     db.commit()

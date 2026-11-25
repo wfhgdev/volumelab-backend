@@ -2,7 +2,6 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-
 MuscleGroupName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150),
 ]
@@ -16,7 +15,7 @@ class MuscleGroupBase(BaseModel):
 
 
 class MuscleGroupCreate(MuscleGroupBase):
-    created_by: int = Field(gt=0)
+    created_by: int | None = Field(default=None, gt=0)
 
 
 class MuscleGroupUpdate(BaseModel):

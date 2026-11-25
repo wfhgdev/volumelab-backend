@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,8 @@ from app.controllers.workout_set_controller import (
     update_workout_set,
 )
 from app.core.database_connection import get_db
+from app.core.dependencies import get_current_user
+from app.models.app_user_model import AppUserModel
 from app.schemas.workout_set_schema import (
     WorkoutSetCreate,
     WorkoutSetResponse,
@@ -17,23 +21,31 @@ from app.schemas.workout_set_schema import (
 
 
 router = APIRouter(prefix="/workout-sets", tags=["Workout sets"])
+DatabaseSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
 
 
 @router.post("/", response_model=WorkoutSetResponse, status_code=status.HTTP_201_CREATED)
-def create(payload: WorkoutSetCreate, db: Session = Depends(get_db)):
-    return create_workout_set(db, payload)
+def create(
+    payload: WorkoutSetCreate,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+):
+    return create_workout_set(db, payload, current_user)
 
 
 @router.get("/", response_model=list[WorkoutSetResponse])
 def list_all(
+    db: DatabaseSession,
+    current_user: CurrentUser,
     session_id: int | None = Query(default=None, gt=0),
     exercise_id: int | None = Query(default=None, gt=0),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
-    db: Session = Depends(get_db),
 ):
     return list_workout_sets(
         db,
+        current_user,
         skip=skip,
         limit=limit,
         session_id=session_id,
@@ -42,20 +54,29 @@ def list_all(
 
 
 @router.get("/{workout_set_id}", response_model=WorkoutSetResponse)
-def get_one(workout_set_id: int, db: Session = Depends(get_db)):
-    return get_workout_set(db, workout_set_id)
+def get_one(
+    workout_set_id: int,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+):
+    return get_workout_set(db, workout_set_id, current_user)
 
 
 @router.put("/{workout_set_id}", response_model=WorkoutSetResponse)
 def update(
     workout_set_id: int,
     payload: WorkoutSetUpdate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return update_workout_set(db, workout_set_id, payload)
+    return update_workout_set(db, workout_set_id, payload, current_user)
 
 
 @router.delete("/{workout_set_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete(workout_set_id: int, db: Session = Depends(get_db)):
-    delete_workout_set(db, workout_set_id)
+def delete(
+    workout_set_id: int,
+    db: DatabaseSession,
+    current_user: CurrentUser,
+):
+    delete_workout_set(db, workout_set_id, current_user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

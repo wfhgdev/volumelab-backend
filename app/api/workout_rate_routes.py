@@ -1,8 +1,10 @@
-from typing import Optional
+from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database_connection import get_db
+from app.core.dependencies import get_current_user
+from app.models.app_user_model import AppUserModel
 from app.controllers import workout_rate_controller
 from app.schemas.workout_rate_schema import (
     WorkoutRateCreate,
@@ -12,6 +14,8 @@ from app.schemas.workout_rate_schema import (
 )
 
 router = APIRouter(prefix="/workout-rates", tags=["Workout Rates"])
+DatabaseSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
 
 
 @router.post(
@@ -23,9 +27,12 @@ router = APIRouter(prefix="/workout-rates", tags=["Workout Rates"])
 )
 def create_new_workout_rate(
     workout_rate: WorkoutRateCreate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return workout_rate_controller.create_workout_rate(db=db, workout_rate=workout_rate)
+    return workout_rate_controller.create_workout_rate(
+        db=db, workout_rate=workout_rate, current_user=current_user
+    )
 
 
 @router.post(
@@ -37,9 +44,12 @@ def create_new_workout_rate(
 )
 def upsert_workout_rate(
     workout_rate: WorkoutRateCreate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return workout_rate_controller.upsert_workout_rate(db=db, workout_rate=workout_rate)
+    return workout_rate_controller.upsert_workout_rate(
+        db=db, workout_rate=workout_rate, current_user=current_user
+    )
 
 
 @router.get(
@@ -49,14 +59,16 @@ def upsert_workout_rate(
     description="Recupera la lista de valoraciones con paginación y filtros opcionales por id_workout y user_id.",
 )
 def list_workout_rates(
+    db: DatabaseSession,
+    current_user: CurrentUser,
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros a recuperar"),
     id_workout: Optional[int] = Query(None, description="Filtrar por ID de ejercicio"),
     user_id: Optional[int] = Query(None, description="Filtrar por ID de usuario"),
-    db: Session = Depends(get_db),
 ):
     return workout_rate_controller.get_workout_rates(
         db=db,
+        current_user=current_user,
         skip=skip,
         limit=limit,
         id_workout=id_workout,
@@ -72,9 +84,12 @@ def list_workout_rates(
 )
 def get_workout_score(
     id_workout: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return workout_rate_controller.get_workout_score(db=db, id_workout=id_workout)
+    return workout_rate_controller.get_workout_score(
+        db=db, id_workout=id_workout, current_user=current_user
+    )
 
 
 @router.get(
@@ -86,12 +101,14 @@ def get_workout_score(
 def get_user_rate_for_workout(
     id_workout: int,
     user_id: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
     return workout_rate_controller.get_workout_rate_by_workout_and_user(
         db=db,
         id_workout=id_workout,
         user_id=user_id,
+        current_user=current_user,
     )
 
 
@@ -103,9 +120,12 @@ def get_user_rate_for_workout(
 )
 def get_workout_rate_by_id(
     rate_id: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return workout_rate_controller.get_workout_rate_by_id(db=db, rate_id=rate_id)
+    return workout_rate_controller.get_workout_rate_by_id(
+        db=db, rate_id=rate_id, current_user=current_user
+    )
 
 
 @router.put(
@@ -117,12 +137,14 @@ def get_workout_rate_by_id(
 def update_workout_rate(
     rate_id: int,
     workout_rate_update: WorkoutRateUpdate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
     return workout_rate_controller.update_workout_rate(
         db=db,
         rate_id=rate_id,
         workout_rate_update=workout_rate_update,
+        current_user=current_user,
     )
 
 
@@ -134,7 +156,10 @@ def update_workout_rate(
 )
 def delete_workout_rate(
     rate_id: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    workout_rate_controller.delete_workout_rate(db=db, rate_id=rate_id)
+    workout_rate_controller.delete_workout_rate(
+        db=db, rate_id=rate_id, current_user=current_user
+    )
     return None

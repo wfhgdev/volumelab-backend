@@ -1,8 +1,10 @@
-from typing import Optional
+from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database_connection import get_db
+from app.core.dependencies import get_current_user
+from app.models.app_user_model import AppUserModel
 from app.controllers import session_rate_controller
 from app.schemas.session_rate_schema import (
     SessionRateCreate,
@@ -12,6 +14,8 @@ from app.schemas.session_rate_schema import (
 )
 
 router = APIRouter(prefix="/session-rates", tags=["Session Rates"])
+DatabaseSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
 
 
 @router.post(
@@ -23,9 +27,12 @@ router = APIRouter(prefix="/session-rates", tags=["Session Rates"])
 )
 def create_new_session_rate(
     session_rate: SessionRateCreate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return session_rate_controller.create_session_rate(db=db, session_rate=session_rate)
+    return session_rate_controller.create_session_rate(
+        db=db, session_rate=session_rate, current_user=current_user
+    )
 
 
 @router.post(
@@ -37,9 +44,12 @@ def create_new_session_rate(
 )
 def upsert_session_rate(
     session_rate: SessionRateCreate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return session_rate_controller.upsert_session_rate(db=db, session_rate=session_rate)
+    return session_rate_controller.upsert_session_rate(
+        db=db, session_rate=session_rate, current_user=current_user
+    )
 
 
 @router.get(
@@ -49,14 +59,16 @@ def upsert_session_rate(
     description="Recupera la lista de valoraciones con paginación y filtros opcionales por id_workout_session y user_id.",
 )
 def list_session_rates(
+    db: DatabaseSession,
+    current_user: CurrentUser,
     skip: int = Query(0, ge=0, description="Registros a omitir"),
     limit: int = Query(100, ge=1, le=500, description="Límite de registros a recuperar"),
     id_workout_session: Optional[int] = Query(None, description="Filtrar por ID de sesión de entrenamiento"),
     user_id: Optional[int] = Query(None, description="Filtrar por ID de usuario"),
-    db: Session = Depends(get_db),
 ):
     return session_rate_controller.get_session_rates(
         db=db,
+        current_user=current_user,
         skip=skip,
         limit=limit,
         id_workout_session=id_workout_session,
@@ -72,9 +84,12 @@ def list_session_rates(
 )
 def get_session_score(
     id_workout_session: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return session_rate_controller.get_session_score(db=db, id_workout_session=id_workout_session)
+    return session_rate_controller.get_session_score(
+        db=db, id_workout_session=id_workout_session, current_user=current_user
+    )
 
 
 @router.get(
@@ -86,12 +101,14 @@ def get_session_score(
 def get_user_rate_for_session(
     id_workout_session: int,
     user_id: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
     return session_rate_controller.get_session_rate_by_session_and_user(
         db=db,
         id_workout_session=id_workout_session,
         user_id=user_id,
+        current_user=current_user,
     )
 
 
@@ -103,9 +120,12 @@ def get_user_rate_for_session(
 )
 def get_session_rate_by_id(
     rate_id: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    return session_rate_controller.get_session_rate_by_id(db=db, rate_id=rate_id)
+    return session_rate_controller.get_session_rate_by_id(
+        db=db, rate_id=rate_id, current_user=current_user
+    )
 
 
 @router.put(
@@ -117,12 +137,14 @@ def get_session_rate_by_id(
 def update_session_rate(
     rate_id: int,
     session_rate_update: SessionRateUpdate,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
     return session_rate_controller.update_session_rate(
         db=db,
         rate_id=rate_id,
         session_rate_update=session_rate_update,
+        current_user=current_user,
     )
 
 
@@ -134,7 +156,10 @@ def update_session_rate(
 )
 def delete_session_rate(
     rate_id: int,
-    db: Session = Depends(get_db),
+    db: DatabaseSession,
+    current_user: CurrentUser,
 ):
-    session_rate_controller.delete_session_rate(db=db, rate_id=rate_id)
+    session_rate_controller.delete_session_rate(
+        db=db, rate_id=rate_id, current_user=current_user
+    )
     return None

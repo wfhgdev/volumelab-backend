@@ -14,7 +14,7 @@ class SessionStatusEnum(str, Enum):
 
 
 class WorkoutSessionBase(BaseModel):
-    user_id: int = Field(..., gt=0, description="ID del usuario que realiza la sesión")
+    user_id: Optional[int] = Field(None, gt=0, description="ID del usuario que realiza la sesión")
     week_id: Optional[int] = Field(None, gt=0, description="ID de la semana de entrenamiento")
     title: Optional[str] = Field(None, max_length=200, description="Título de la sesión")
     session_date: date = Field(..., description="Fecha de la sesión")

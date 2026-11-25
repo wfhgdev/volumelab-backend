@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
+from app.core.permissions import resolve_owner_id
 from app.models.app_user_model import AppUserModel, RoleUser
 from app.models.muscle_group_model import MuscleGroupModel
 from app.schemas.muscle_group_schema import MuscleGroupCreate, MuscleGroupUpdate
@@ -42,10 +43,17 @@ def _validate_unique_name(
         raise HTTPException(409, "Ya existe un grupo muscular con este nombre")
 
 
-def create_muscle_group(db: Session, payload: MuscleGroupCreate) -> MuscleGroupModel:
-    _validate_administrator(db, payload.created_by)
+def create_muscle_group(
+    db: Session,
+    payload: MuscleGroupCreate,
+    current_user: AppUserModel,
+) -> MuscleGroupModel:
+    creator_id = resolve_owner_id(current_user, payload.created_by)
+    _validate_administrator(db, creator_id)
     _validate_unique_name(db, payload.name)
-    record = MuscleGroupModel(**payload.model_dump())
+    data = payload.model_dump()
+    data["created_by"] = creator_id
+    record = MuscleGroupModel(**data)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -53,7 +61,11 @@ def create_muscle_group(db: Session, payload: MuscleGroupCreate) -> MuscleGroupM
 
 
 def list_muscle_groups(
-    db: Session, skip: int = 0, limit: int = 100, created_by: int | None = None,
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    created_by: int | None = None,
+    current_user: AppUserModel | None = None,
 ) -> list[MuscleGroupModel]:
     query = db.query(MuscleGroupModel)
     if created_by is not None:
@@ -61,12 +73,19 @@ def list_muscle_groups(
     return query.order_by(MuscleGroupModel.id.asc()).offset(skip).limit(limit).all()
 
 
-def get_muscle_group(db: Session, muscle_group_id: int) -> MuscleGroupModel:
+def get_muscle_group(
+    db: Session,
+    muscle_group_id: int,
+    current_user: AppUserModel | None = None,
+) -> MuscleGroupModel:
     return _find_muscle_group(db, muscle_group_id)
 
 
 def update_muscle_group(
-    db: Session, muscle_group_id: int, payload: MuscleGroupUpdate,
+    db: Session,
+    muscle_group_id: int,
+    payload: MuscleGroupUpdate,
+    current_user: AppUserModel,
 ) -> MuscleGroupModel:
     record = _find_muscle_group(db, muscle_group_id, lock=True)
     changes = payload.model_dump(exclude_unset=True)
@@ -81,7 +100,11 @@ def update_muscle_group(
     return record
 
 
-def delete_muscle_group(db: Session, muscle_group_id: int) -> None:
+def delete_muscle_group(
+    db: Session,
+    muscle_group_id: int,
+    current_user: AppUserModel,
+) -> None:
     record = _find_muscle_group(db, muscle_group_id, lock=True)
     if inspect(db.get_bind()).has_table("muscle_workout"):
         association = db.execute(

@@ -1,10 +1,13 @@
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.permissions import ensure_owner_or_admin, is_admin
+from app.models.app_user_model import AppUserModel
+from app.models.workout_session_model import WorkoutSessionModel
 from app.models.workout_set_model import (
     WorkoutSetExerciseType,
     WorkoutSetModel,
@@ -234,7 +237,18 @@ def _raise_dbapi_error(exc: DBAPIError) -> None:
     )
 
 
-def create_workout_set(db: Session, payload: WorkoutSetCreate) -> WorkoutSetModel:
+def create_workout_set(
+    db: Session, payload: WorkoutSetCreate, current_user: AppUserModel | None = None
+) -> WorkoutSetModel:
+    session = db.get(WorkoutSessionModel, payload.session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Sesión con id {payload.session_id} no encontrada",
+        )
+    if current_user is not None:
+        ensure_owner_or_admin(current_user, session.user_id, is_private=not session.public)
+
     effective, volume_load, one_rm_kg, one_rm_percentage = _calculate_values(
         db,
         payload.session_id,
@@ -275,12 +289,20 @@ def create_workout_set(db: Session, payload: WorkoutSetCreate) -> WorkoutSetMode
 
 def list_workout_sets(
     db: Session,
+    current_user: AppUserModel | None = None,
     skip: int = 0,
     limit: int = 100,
     session_id: int | None = None,
     exercise_id: int | None = None,
 ) -> list[WorkoutSetModel]:
     query = db.query(WorkoutSetModel)
+    if current_user is not None and not is_admin(current_user):
+        query = query.join(WorkoutSessionModel, WorkoutSetModel.session_id == WorkoutSessionModel.id).filter(
+            or_(
+                WorkoutSessionModel.user_id == current_user.id,
+                WorkoutSessionModel.public.is_(True),
+            )
+        )
     if session_id is not None:
         query = query.filter(WorkoutSetModel.session_id == session_id)
     if exercise_id is not None:
@@ -297,7 +319,9 @@ def list_workout_sets(
     )
 
 
-def get_workout_set(db: Session, workout_set_id: int) -> WorkoutSetModel:
+def get_workout_set(
+    db: Session, workout_set_id: int, current_user: AppUserModel | None = None
+) -> WorkoutSetModel:
     record = (
         db.query(WorkoutSetModel)
         .filter(WorkoutSetModel.id == workout_set_id)
@@ -308,13 +332,44 @@ def get_workout_set(db: Session, workout_set_id: int) -> WorkoutSetModel:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Serie con id {workout_set_id} no encontrada",
         )
+    if current_user is not None and not is_admin(current_user):
+        session = db.get(WorkoutSessionModel, record.session_id)
+        if session and session.user_id != current_user.id and not session.public:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Serie con id {workout_set_id} no encontrada",
+            )
     return record
 
 
 def update_workout_set(
-    db: Session, workout_set_id: int, payload: WorkoutSetUpdate
+    db: Session,
+    workout_set_id: int,
+    payload: WorkoutSetUpdate,
+    current_user: AppUserModel | None = None,
 ) -> WorkoutSetModel:
-    record = get_workout_set(db, workout_set_id)
+    record = get_workout_set(db, workout_set_id, current_user)
+    if current_user is not None:
+        session = db.get(WorkoutSessionModel, record.session_id)
+        ensure_owner_or_admin(
+            current_user,
+            session.user_id if session else None,
+            is_private=not (session.public if session else False),
+        )
+
+        if payload.session_id is not None and payload.session_id != record.session_id:
+            target_session = db.get(WorkoutSessionModel, payload.session_id)
+            if not target_session:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Sesión con id {payload.session_id} no encontrada",
+                )
+            ensure_owner_or_admin(
+                current_user,
+                target_session.user_id,
+                is_private=not target_session.public,
+            )
+
     _get_session_bodyweight(db, record.session_id)
     calculated_fields = {
         "effective_weight_kg",
@@ -352,8 +407,17 @@ def update_workout_set(
         _raise_dbapi_error(exc)
 
 
-def delete_workout_set(db: Session, workout_set_id: int) -> None:
-    record = get_workout_set(db, workout_set_id)
+def delete_workout_set(
+    db: Session, workout_set_id: int, current_user: AppUserModel | None = None
+) -> None:
+    record = get_workout_set(db, workout_set_id, current_user)
+    if current_user is not None:
+        session = db.get(WorkoutSessionModel, record.session_id)
+        ensure_owner_or_admin(
+            current_user,
+            session.user_id if session else None,
+            is_private=not (session.public if session else False),
+        )
     _get_session_bodyweight(db, record.session_id)
     try:
         db.delete(record)

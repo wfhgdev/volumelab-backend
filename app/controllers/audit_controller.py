@@ -9,7 +9,7 @@ from app.core.exceptions import (
     AuditNotFoundException,
 )
 from app.models.audit_model import AuditAction, AuditModel
-from app.schemas.audit_schema import AuditCreate, AuditUpdate
+from app.schemas.audit_schema import AuditCreate
 
 
 def _ensure_user_exists(db: Session, user_id: int) -> None:
@@ -25,6 +25,7 @@ def _ensure_user_exists(db: Session, user_id: int) -> None:
 
 
 def create_audit(db: Session, payload: AuditCreate) -> AuditModel:
+    """Inserción interna de un registro de auditoría."""
     if payload.user_id is not None:
         _ensure_user_exists(db, payload.user_id)
 
@@ -103,36 +104,3 @@ def get_audit(db: Session, audit_id: int) -> AuditModel:
     if record is None:
         raise AuditNotFoundException(audit_id)
     return record
-
-
-def update_audit(db: Session, audit_id: int, payload: AuditUpdate) -> AuditModel:
-    record = get_audit(db, audit_id)
-
-    update_data = payload.model_dump(exclude_unset=True)
-    if (
-        "user_id" in update_data
-        and update_data["user_id"] is not None
-        and update_data["user_id"] != record.user_id
-    ):
-        _ensure_user_exists(db, update_data["user_id"])
-
-    for field, value in update_data.items():
-        setattr(record, field, value)
-
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    db.refresh(record)
-    return record
-
-
-def delete_audit(db: Session, audit_id: int) -> None:
-    record = get_audit(db, audit_id)
-    db.delete(record)
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise

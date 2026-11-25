@@ -6,18 +6,16 @@ from fastapi import HTTPException
 
 from app.controllers.audit_controller import (
     create_audit,
-    delete_audit,
     get_audit,
     list_audits,
     record_audit_event,
-    update_audit,
 )
 from app.core.exceptions import (
     AuditDateRangeValidationException,
     AuditNotFoundException,
 )
 from app.models.audit_model import AuditAction, AuditModel
-from app.schemas.audit_schema import AuditCreate, AuditUpdate
+from app.schemas.audit_schema import AuditCreate
 
 
 def make_audit_record(
@@ -201,82 +199,5 @@ def test_get_audit_raises_404_when_missing():
 
     with pytest.raises(AuditNotFoundException) as exc:
         get_audit(db, 999)
-
-    assert exc.value.status_code == 404
-
-
-def test_update_audit_updates_fields_without_user_check_when_unchanged():
-    db = MagicMock()
-    record = make_audit_record(audit_id=1, user_id=1, action=AuditAction.INSERT)
-    db.query.return_value.filter.return_value.first.return_value = record
-
-    result = update_audit(
-        db,
-        1,
-        AuditUpdate(
-            action=AuditAction.UPDATE,
-            endpoint="/workout-sessions/42/close",
-        ),
-    )
-
-    assert result.action == AuditAction.UPDATE
-    assert result.endpoint == "/workout-sessions/42/close"
-    db.execute.assert_not_called()
-    db.commit.assert_called_once()
-    db.refresh.assert_called_once_with(record)
-
-
-def test_update_audit_validates_new_user_exists():
-    db = MagicMock()
-    record = make_audit_record(audit_id=1, user_id=1)
-    db.query.return_value.filter.return_value.first.return_value = record
-    db.execute.return_value.first.return_value = None
-
-    with pytest.raises(HTTPException) as exc:
-        update_audit(db, 1, AuditUpdate(user_id=999))
-
-    assert exc.value.status_code == 404
-    db.commit.assert_not_called()
-
-
-def test_update_audit_allows_clearing_user_id_to_null():
-    db = MagicMock()
-    record = make_audit_record(audit_id=1, user_id=1)
-    db.query.return_value.filter.return_value.first.return_value = record
-
-    result = update_audit(db, 1, AuditUpdate(user_id=None))
-
-    assert result.user_id is None
-    db.execute.assert_not_called()
-    db.commit.assert_called_once()
-
-
-def test_update_audit_raises_404_when_record_missing():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
-
-    with pytest.raises(AuditNotFoundException) as exc:
-        update_audit(db, 999, AuditUpdate(action=AuditAction.DELETE))
-
-    assert exc.value.status_code == 404
-
-
-def test_delete_audit_removes_and_commits():
-    db = MagicMock()
-    record = make_audit_record(audit_id=1)
-    db.query.return_value.filter.return_value.first.return_value = record
-
-    delete_audit(db, 1)
-
-    db.delete.assert_called_once_with(record)
-    db.commit.assert_called_once()
-
-
-def test_delete_audit_raises_404_when_missing():
-    db = MagicMock()
-    db.query.return_value.filter.return_value.first.return_value = None
-
-    with pytest.raises(AuditNotFoundException) as exc:
-        delete_audit(db, 999)
 
     assert exc.value.status_code == 404

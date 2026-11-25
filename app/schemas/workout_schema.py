@@ -27,7 +27,7 @@ class WorkoutBase(BaseModel):
 
 
 class WorkoutCreate(WorkoutBase):
-    created_by: int = Field(gt=0)
+    created_by: int | None = Field(default=None, gt=0)
 
 
 class WorkoutUpdate(BaseModel):
@@ -48,8 +48,6 @@ class WorkoutUpdate(BaseModel):
         for field_name in self.model_fields_set - {"description"}:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
-        if self.allow_negative_ballast is True and self.is_bodyweight is False:
-            raise ValueError("Negative ballast requires a bodyweight exercise")
         return self
 
 

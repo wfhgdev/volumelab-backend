@@ -10,7 +10,7 @@ class SessionRateBase(BaseModel):
 
 class SessionRateCreate(SessionRateBase):
     """Esquema para creación de una valoración de sesión."""
-    user_id: int = Field(..., gt=0, description="ID del usuario que realiza la valoración")
+    user_id: int | None = Field(None, gt=0, description="ID del usuario que realiza la valoración")
 
 
 class SessionRateUpdate(BaseModel):

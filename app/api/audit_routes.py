@@ -1,41 +1,27 @@
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query, Response, status
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
-from app.controllers.audit_controller import (
-    create_audit,
-    delete_audit,
-    get_audit,
-    list_audits,
-    update_audit,
-)
+from app.controllers.audit_controller import get_audit, list_audits
 from app.core.database_connection import get_db
+from app.core.dependencies import require_admin
+from app.models.app_user_model import AppUserModel
 from app.models.audit_model import AuditAction
-from app.schemas.audit_schema import AuditCreate, AuditResponse, AuditUpdate
-
+from app.schemas.audit_schema import AuditResponse
 
 router = APIRouter(prefix="/audits", tags=["Audits"])
-
-
-@router.post(
-    "/",
-    response_model=AuditResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear registro de auditoría",
-    description="Registra una operación crítica o exportación (INSERT, UPDATE, DELETE, EXPORT) en la tabla audit.",
-)
-def create(payload: AuditCreate, db: Session = Depends(get_db)):
-    return create_audit(db, payload)
 
 
 @router.get(
     "/",
     response_model=list[AuditResponse],
     summary="Listar registros de auditoría",
-    description="Consulta paginada de auditoría filtrable por usuario, entidad, registro, acción y rango temporal.",
+    description="Consulta paginada de auditoría exclusiva para administradores.",
 )
 def list_all(
+    current_user: Annotated[AppUserModel, Depends(require_admin)],
     user_id: int | None = Query(default=None, gt=0, description="Filtrar por ID de usuario"),
     entity: str | None = Query(default=None, min_length=1, max_length=60, description="Filtrar por entidad"),
     record_id: str | None = Query(default=None, min_length=1, max_length=60, description="Filtrar por ID del registro"),
@@ -63,35 +49,11 @@ def list_all(
     "/{audit_id}",
     response_model=AuditResponse,
     summary="Consultar registro de auditoría por ID",
+    description="Consulta individual de un registro de auditoría exclusiva para administradores.",
 )
 def get_one(
-    audit_id: int = Path(..., gt=0, description="Identificador del registro de auditoría"),
+    audit_id: Annotated[int, Path(gt=0, description="Identificador del registro de auditoría")],
+    current_user: Annotated[AppUserModel, Depends(require_admin)],
     db: Session = Depends(get_db),
 ):
     return get_audit(db, audit_id)
-
-
-@router.put(
-    "/{audit_id}",
-    response_model=AuditResponse,
-    summary="Actualizar registro de auditoría",
-)
-def update(
-    payload: AuditUpdate,
-    audit_id: int = Path(..., gt=0, description="Identificador del registro de auditoría"),
-    db: Session = Depends(get_db),
-):
-    return update_audit(db, audit_id, payload)
-
-
-@router.delete(
-    "/{audit_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Eliminar registro de auditoría",
-)
-def delete(
-    audit_id: int = Path(..., gt=0, description="Identificador del registro de auditoría"),
-    db: Session = Depends(get_db),
-):
-    delete_audit(db, audit_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

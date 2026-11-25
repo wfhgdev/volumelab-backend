@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
 from app.models.app_user_model import AppUserModel
 from app.schemas.mesocycle_schema import MesocycleCreate, MesocycleUpdate
+from app.core.permissions import ensure_owner_or_admin, is_admin, resolve_owner_id
 from app.core.exceptions import (
     MesocycleNotFoundException,
     UserNotFoundException,
@@ -13,13 +14,16 @@ from app.core.exceptions import (
 
 def get_mesocycles(
     db: Session,
+    current_user: AppUserModel,
     user_id: Optional[int] = None,
     status: Optional[str] = None,
     skip: int = 0,
     limit: int = 100
 ) -> List[MesocycleModel]:
     query = select(MesocycleModel)
-    if user_id is not None:
+    if not is_admin(current_user):
+        query = query.filter(MesocycleModel.user_id == current_user.id)
+    elif user_id is not None:
         query = query.filter(MesocycleModel.user_id == user_id)
     if status is not None:
         query = query.filter(MesocycleModel.status == status)
@@ -27,25 +31,30 @@ def get_mesocycles(
     return list(db.scalars(query).all())
 
 
-def get_mesocycle_by_id(db: Session, mesocycle_id: int) -> MesocycleModel:
+def get_mesocycle_by_id(db: Session, mesocycle_id: int, current_user: AppUserModel) -> MesocycleModel:
     mesocycle = db.get(MesocycleModel, mesocycle_id)
     if not mesocycle:
         raise MesocycleNotFoundException(mesocycle_id)
+    ensure_owner_or_admin(current_user, mesocycle.user_id, is_private=True)
     return mesocycle
 
 
-def create_mesocycle(db: Session, mesocycle: MesocycleCreate) -> MesocycleModel:
+def create_mesocycle(
+    db: Session, mesocycle: MesocycleCreate, current_user: AppUserModel
+) -> MesocycleModel:
     # Validar fechas
     if mesocycle.end_date < mesocycle.start_date:
         raise MesocycleDateValidationException("end_date debe ser mayor o igual a start_date")
 
+    owner_id = resolve_owner_id(current_user, mesocycle.user_id)
+
     # Validar existencia del usuario
-    user = db.get(AppUserModel, mesocycle.user_id)
+    user = db.get(AppUserModel, owner_id)
     if not user:
-        raise UserNotFoundException(mesocycle.user_id)
+        raise UserNotFoundException(owner_id)
 
     db_mesocycle = MesocycleModel(
-        user_id=mesocycle.user_id,
+        user_id=owner_id,
         name=mesocycle.name,
         start_date=mesocycle.start_date,
         end_date=mesocycle.end_date,
@@ -60,11 +69,10 @@ def create_mesocycle(db: Session, mesocycle: MesocycleCreate) -> MesocycleModel:
 def update_mesocycle(
     db: Session,
     mesocycle_id: int,
-    mesocycle_update: MesocycleUpdate
+    mesocycle_update: MesocycleUpdate,
+    current_user: AppUserModel,
 ) -> MesocycleModel:
-    db_mesocycle = db.get(MesocycleModel, mesocycle_id)
-    if not db_mesocycle:
-        raise MesocycleNotFoundException(mesocycle_id)
+    db_mesocycle = get_mesocycle_by_id(db, mesocycle_id, current_user)
 
     # Validar coherencia de fechas combinadas
     effective_start = (
@@ -93,10 +101,7 @@ def update_mesocycle(
     return db_mesocycle
 
 
-def delete_mesocycle(db: Session, mesocycle_id: int) -> None:
-    db_mesocycle = db.get(MesocycleModel, mesocycle_id)
-    if not db_mesocycle:
-        raise MesocycleNotFoundException(mesocycle_id)
-
+def delete_mesocycle(db: Session, mesocycle_id: int, current_user: AppUserModel) -> None:
+    db_mesocycle = get_mesocycle_by_id(db, mesocycle_id, current_user)
     db.delete(db_mesocycle)
     db.commit()

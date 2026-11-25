@@ -10,7 +10,7 @@ class WorkoutRateBase(BaseModel):
 
 class WorkoutRateCreate(WorkoutRateBase):
     """Esquema para creación de una valoración de ejercicio."""
-    user_id: int = Field(..., gt=0, description="ID del usuario que realiza la valoración")
+    user_id: int | None = Field(None, gt=0, description="ID del usuario que realiza la valoración")
 
 
 class WorkoutRateUpdate(BaseModel):

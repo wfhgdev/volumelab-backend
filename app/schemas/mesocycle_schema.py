@@ -27,7 +27,7 @@ class MesocycleBase(BaseModel):
 
 
 class MesocycleCreate(MesocycleBase):
-    user_id: int = Field(..., gt=0, description="ID del usuario al que pertenece el mesociclo")
+    user_id: Optional[int] = Field(default=None, gt=0, description="ID del usuario al que pertenece el mesociclo")
 
 
 class MesocycleUpdate(BaseModel):

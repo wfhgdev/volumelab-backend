@@ -7,97 +7,69 @@ scenarios("../features/audit.feature")
 
 @pytest.fixture
 def audit_bdd_context():
-    return {"user_id": None, "audit_id": None, "response": None}
+    return {"response": None}
 
 
-@given("existe un usuario registrado para auditoría")
-def existing_audit_user(test_user, audit_bdd_context):
-    audit_bdd_context["user_id"] = test_user.id
+@given("existe un usuario cliente autenticado")
+def user_client_auth(user_client, audit_bdd_context):
+    audit_bdd_context["client"] = user_client
 
 
-@given(
-    parsers.parse(
-        'ya existe un registro de auditoría de acción "{action}" para la entidad "{entity}"'
+@given("existe un usuario administrador autenticado")
+def admin_client_auth(admin_client, audit_bdd_context):
+    audit_bdd_context["client"] = admin_client
+
+
+@when("intento listar los registros de auditoría sin autenticación")
+def list_audits_unauthenticated(client, audit_bdd_context):
+    audit_bdd_context["response"] = client.get("/audits/")
+
+
+@when("intento listar los registros de auditoría como cliente")
+def list_audits_as_client(audit_bdd_context):
+    audit_bdd_context["response"] = audit_bdd_context["client"].get("/audits/")
+
+
+@when("listo los registros de auditoría como administrador")
+def list_audits_as_admin(audit_bdd_context):
+    audit_bdd_context["response"] = audit_bdd_context["client"].get("/audits/")
+
+
+@when(parsers.parse('listo los registros de auditoría filtrando por acción "{action}"'))
+def list_audits_filter_action(audit_bdd_context, action):
+    audit_bdd_context["response"] = audit_bdd_context["client"].get(f"/audits/?action={action}")
+
+
+@when("listo los registros de auditoría con fecha inicial posterior a la fecha final")
+def list_audits_invalid_dates(audit_bdd_context):
+    audit_bdd_context["response"] = audit_bdd_context["client"].get(
+        "/audits/?date_from=2026-11-22T00:00:00&date_to=2026-11-20T00:00:00"
     )
-)
-def existing_audit_record(client, audit_bdd_context, action, entity):
-    payload = {
-        "user_id": audit_bdd_context["user_id"],
-        "entity": entity,
-        "record_id": "100",
-        "action": action,
-        "endpoint": f"/{entity}/100",
-    }
-    response = client.post("/audits/", json=payload)
-    assert response.status_code == 201
-    audit_bdd_context["audit_id"] = response.json()["id"]
 
 
-@when(
-    parsers.parse(
-        'creo un registro de auditoría de acción "{action}" sobre la entidad "{entity}" con record_id "{record_id}" y endpoint "{endpoint}"'
-    )
-)
-def create_audit_for_user(client, audit_bdd_context, action, entity, record_id, endpoint):
-    payload = {
-        "user_id": audit_bdd_context["user_id"],
-        "entity": entity,
-        "record_id": record_id,
-        "action": action,
-        "endpoint": endpoint,
-    }
-    audit_bdd_context["response"] = client.post("/audits/", json=payload)
+@when(parsers.parse("consulto el registro de auditoría con identificador {audit_id:d}"))
+def get_audit_by_id(audit_bdd_context, audit_id):
+    audit_bdd_context["response"] = audit_bdd_context["client"].get(f"/audits/{audit_id}")
 
 
-@when(
-    parsers.parse(
-        'creo un registro de auditoría anónimo de acción "{action}" sobre la entidad "{entity}" con record_id "{record_id}"'
-    )
-)
-def create_anonymous_audit(client, audit_bdd_context, action, entity, record_id):
-    payload = {
-        "user_id": None,
-        "entity": entity,
-        "record_id": record_id,
-        "action": action,
-        "endpoint": f"/{entity}/{record_id}",
-    }
-    audit_bdd_context["response"] = client.post("/audits/", json=payload)
+@when("intento crear un registro de auditoría por POST")
+def post_audit_attempt(audit_bdd_context):
+    audit_bdd_context["response"] = audit_bdd_context["client"].post("/audits/", json={})
 
 
-@when(
-    parsers.parse(
-        "intento crear un registro de auditoría para el usuario inexistente {user_id:d}"
-    )
-)
-def create_audit_missing_user(client, audit_bdd_context, user_id):
-    payload = {
-        "user_id": user_id,
-        "entity": "app_user",
-        "record_id": str(user_id),
-        "action": "UPDATE",
-    }
-    audit_bdd_context["response"] = client.post("/audits/", json=payload)
+@when("intento modificar un registro de auditoría por PUT")
+def put_audit_attempt(audit_bdd_context):
+    audit_bdd_context["response"] = audit_bdd_context["client"].put("/audits/1", json={})
 
 
-@when(
-    parsers.parse('intento crear un registro de auditoría con acción inválida "{action}"')
-)
-def create_audit_invalid_action(client, audit_bdd_context, action):
-    payload = {
-        "entity": "workout",
-        "record_id": "1",
-        "action": action,
-    }
-    audit_bdd_context["response"] = client.post("/audits/", json=payload)
+@when("intento eliminar un registro de auditoría por DELETE")
+def delete_audit_attempt(audit_bdd_context):
+    audit_bdd_context["response"] = audit_bdd_context["client"].delete("/audits/1")
 
 
-@when(
-    parsers.parse('listo los registros de auditoría filtrando por acción "{action}"')
-)
-def list_audits_by_action(client, audit_bdd_context, action):
-    audit_bdd_context["response"] = client.get(f"/audits/?action={action}")
-
+@then(parsers.parse("el estado HTTP de auditoría es {status_code:d}"))
+def check_status_code(audit_bdd_context, status_code):
+    assert audit_bdd_context["response"].status_code == status_code
 
 @when("listo los registros de auditoría con fecha inicial posterior a la fecha final")
 def list_audits_invalid_dates(client, audit_bdd_context):

@@ -2,10 +2,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import DBAPIError
 
 from app.core.database_connection import get_db
+from app.core.dependencies import get_current_user
 from app.main import app
+from app.models.app_user_model import AppUserModel
 
 
 class _FakePgError(Exception):
@@ -18,10 +20,24 @@ class _FakePgError(Exception):
 def client_with_mock_db():
     db = MagicMock()
 
+    admin = AppUserModel(
+        id=1,
+        email="admin@volumelab.com",
+        first_name="Admin",
+        last_name="System",
+        password_hash="...",
+        role="ADMIN",
+        status="ACTIVO",
+    )
+
     def override_get_db():
         yield db
 
+    def override_current_user():
+        return admin
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
     client = TestClient(app, raise_server_exceptions=False)
     try:
         yield client, db
@@ -62,47 +78,22 @@ def test_get_audit_rejects_non_positive_id(client_with_mock_db):
     assert response.status_code == 422
 
 
-def test_integrity_error_foreign_key_returns_409(client_with_mock_db):
-    client, db = client_with_mock_db
-    db.execute.return_value.first.return_value = (1,)
-    db.commit.side_effect = IntegrityError(
-        "INSERT",
-        {},
-        _FakePgError(
-            "insert or update on table audit violates foreign key constraint fk_audit_user",
-            "23503",
-        ),
-    )
-
-    response = client.post(
-        "/audits/",
-        json={
-            "user_id": 1,
-            "entity": "workout_session",
-            "record_id": "10",
-            "action": "INSERT",
-        },
-    )
-    assert response.status_code == 409
+def test_post_audit_not_allowed(client_with_mock_db):
+    client, _ = client_with_mock_db
+    response = client.post("/audits/", json={})
+    assert response.status_code == 405
 
 
-def test_integrity_error_not_null_returns_422(client_with_mock_db):
-    client, db = client_with_mock_db
-    db.commit.side_effect = IntegrityError(
-        "INSERT",
-        {},
-        _FakePgError("null value in column entity violates not-null constraint", "23502"),
-    )
+def test_put_audit_not_allowed(client_with_mock_db):
+    client, _ = client_with_mock_db
+    response = client.put("/audits/1", json={})
+    assert response.status_code == 405
 
-    response = client.post(
-        "/audits/",
-        json={
-            "entity": "workout_session",
-            "record_id": "10",
-            "action": "INSERT",
-        },
-    )
-    assert response.status_code == 422
+
+def test_delete_audit_not_allowed(client_with_mock_db):
+    client, _ = client_with_mock_db
+    response = client.delete("/audits/1")
+    assert response.status_code == 405
 
 
 def test_dbapi_error_invalid_enum_returns_422(client_with_mock_db):
