@@ -64,3 +64,71 @@ class AuditDateRangeValidationException(HTTPException):
             detail=detail,
         )
 
+
+# Excepciones de Autenticación y Autorización
+class MissingTokenException(HTTPException):
+    def __init__(self, detail: str = "Token de autenticación no proporcionado"):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class InvalidCredentialsException(HTTPException):
+    def __init__(self, detail: str = "Credenciales inválidas"):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class BlockedUserException(HTTPException):
+    def __init__(self, detail: str = "Usuario bloqueado"):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+
+class InvalidTokenException(HTTPException):
+    def __init__(self, detail: str = "Token inválido o mal formado"):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class ExpiredTokenException(HTTPException):
+    def __init__(self, detail: str = "Token expirado"):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class PermissionDeniedException(HTTPException):
+    def __init__(self, detail: str = "No tienes permisos para realizar esta acción"):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+
+class ForbiddenResourceException(HTTPException):
+    def __init__(self, detail: str = "No tienes permiso para modificar este recurso"):
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+
+class ResourceNotFoundException(HTTPException):
+    def __init__(self, detail: str = "Recurso no encontrado"):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=detail,
+        )

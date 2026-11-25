@@ -9,7 +9,7 @@ Gender = Literal["HOMBRE", "MUJER", "PREFIERO NO DECIR"]
 Status = Literal["ACTIVO", "BLOQUEADO"]
 Role = Literal["ADMIN", "CLIENTE"]
 
-_NON_NULLABLE_UPDATE_FIELDS = ("name", "email", "password_hash", "role", "status")
+_NON_NULLABLE_UPDATE_FIELDS = ("name", "email", "password", "role", "status")
 
 
 class AppUserBase(BaseModel):
@@ -41,7 +41,7 @@ class AppUserBase(BaseModel):
 
 
 class AppUserCreate(AppUserBase):
-    password_hash: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class AppUserUpdate(BaseModel):
@@ -50,7 +50,7 @@ class AppUserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=150)
     lastname: str | None = Field(default=None, max_length=150)
     email: str | None = Field(default=None, max_length=255)
-    password_hash: str | None = Field(default=None, min_length=1, max_length=255)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     birth_date: date | None = None
     gender: Gender | None = None
     height_cm: int | None = Field(default=None, ge=50, le=300)

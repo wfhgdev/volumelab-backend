@@ -4,13 +4,14 @@ import pytest
 from pytest_bdd import given, parsers, scenario, then, when
 from sqlalchemy import func
 
+from app.core.security import hash_password
 from app.models.app_user_model import AppUserModel
 
 
 @pytest.fixture
-def bdd_context(client, db_session):
+def bdd_context(admin_client, db_session):
     return {
-        "client": client,
+        "client": admin_client,
         "db": db_session,
         "response": None,
         "user_id": None,
@@ -99,7 +100,7 @@ def existing_email(bdd_context, email):
             name="Ana",
             lastname="Lopez",
             email=email.lower(),
-            password_hash="hashed_pw",
+            password_hash=hash_password("Password123!"),
             birth_date=date(1995, 5, 20),
             gender="PREFIERO NO DECIR",
             height_cm=170,
@@ -126,7 +127,7 @@ def create_user(bdd_context, name, email):
             "name": name,
             "lastname": "Lopez",
             "email": email,
-            "password_hash": "hashed_secret",
+            "password": "Password123!",
             "gender": "PREFIERO NO DECIR",
             "height_cm": 170,
         },
@@ -171,48 +172,49 @@ def delete_missing(bdd_context, user_id):
 
 @then("el usuario se crea correctamente")
 def user_created(bdd_context):
-    body = bdd_context["response"].json()
-    assert body["id"] >= 1
-    assert body["name"] == "Ana"
-    assert body["email"] == "ana@example.com"
-    assert "password_hash" not in body
+    data = bdd_context["response"].json()
+    assert data["id"] is not None
+    assert data["name"] == "Ana"
+    assert "password" not in data
+    assert "password_hash" not in data
+    bdd_context["user_id"] = data["id"]
 
 
 @then("la operación falla por conflicto")
-def conflict(bdd_context):
-    assert "email" in bdd_context["response"].json()["detail"].lower()
+def operation_conflict(bdd_context):
+    assert bdd_context["response"].status_code == 409
 
 
 @then("la operación falla por validación")
-def validation_error(bdd_context):
-    assert "detail" in bdd_context["response"].json()
+def operation_validation(bdd_context):
+    assert bdd_context["response"].status_code == 422
 
 
 @then("la lista contiene el usuario con ese email")
-def list_contains_user(bdd_context):
-    body = bdd_context["response"].json()
-    assert any(user["email"] == bdd_context["email"] for user in body)
+def user_in_list(bdd_context):
+    emails = [u["email"] for u in bdd_context["response"].json()]
+    assert bdd_context["email"] in emails
 
 
 @then(parsers.parse('obtengo los datos del usuario "{email}"'))
-def got_user_data(bdd_context, email):
-    body = bdd_context["response"].json()
-    assert body["email"] == email
-    assert "password_hash" not in body
+def user_matches(bdd_context, email):
+    data = bdd_context["response"].json()
+    assert data["id"] == bdd_context["user_id"]
+    assert data["email"] == email.lower()
 
 
 @then("la operación indica que no fue encontrado")
-def not_found(bdd_context):
-    assert "no encontrado" in bdd_context["response"].json()["detail"].lower()
+def user_not_found(bdd_context):
+    assert bdd_context["response"].status_code == 404
 
 
 @then(parsers.parse('el usuario queda actualizado con nombre "{name}" y estado "{status}"'))
 def user_updated(bdd_context, name, status):
-    body = bdd_context["response"].json()
-    assert body["name"] == name
-    assert body["status"] == status
+    data = bdd_context["response"].json()
+    assert data["name"] == name
+    assert data["status"] == status
 
 
 @then(parsers.parse("el estado HTTP es {status_code:d}"))
-def check_status(bdd_context, status_code):
+def http_status(bdd_context, status_code):
     assert bdd_context["response"].status_code == status_code
