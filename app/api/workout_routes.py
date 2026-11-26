@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.controllers import workout_controller
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.models.workout_model import ExerciseType
 from app.schemas.workout_schema import WorkoutCreate, WorkoutResponse, WorkoutUpdate
@@ -13,6 +13,7 @@ from app.schemas.workout_schema import WorkoutCreate, WorkoutResponse, WorkoutUp
 router = APIRouter(prefix="/workouts", tags=["Workouts"])
 WorkoutId = Annotated[int, Path(gt=0)]
 DatabaseSession = Annotated[Session, Depends(get_db)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=WorkoutResponse, status_code=201)
@@ -20,8 +21,9 @@ def create(
     payload: WorkoutCreate,
     current_user: Annotated[AppUserModel, Depends(get_current_user)],
     db: DatabaseSession,
+    audit_context: RequestAuditContext,
 ):
-    return workout_controller.create_workout(db, payload, current_user)
+    return workout_controller.create_workout(db, payload, current_user, audit_context=audit_context)
 
 
 @router.get("/", response_model=list[WorkoutResponse])
@@ -55,8 +57,11 @@ def update(
     payload: WorkoutUpdate,
     current_user: Annotated[AppUserModel, Depends(get_current_user)],
     db: DatabaseSession,
+    audit_context: RequestAuditContext,
 ):
-    return workout_controller.update_workout(db, workout_id, payload, current_user)
+    return workout_controller.update_workout(
+        db, workout_id, payload, current_user, audit_context=audit_context
+    )
 
 
 @router.delete("/{workout_id}", status_code=204, response_class=Response)
@@ -64,6 +69,7 @@ def delete(
     workout_id: WorkoutId,
     current_user: Annotated[AppUserModel, Depends(get_current_user)],
     db: DatabaseSession,
+    audit_context: RequestAuditContext,
 ):
-    workout_controller.delete_workout(db, workout_id, current_user)
+    workout_controller.delete_workout(db, workout_id, current_user, audit_context=audit_context)
     return Response(status_code=204)

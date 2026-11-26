@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.controllers import muscle_group_controller
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user, require_admin
 from app.models.app_user_model import AppUserModel
 from app.schemas.muscle_group_schema import (
     MuscleGroupCreate,
@@ -16,6 +16,7 @@ from app.schemas.muscle_group_schema import (
 router = APIRouter(prefix="/muscle-groups", tags=["Muscle groups"])
 MuscleGroupId = Annotated[int, Path(gt=0)]
 DatabaseSession = Annotated[Session, Depends(get_db)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=MuscleGroupResponse, status_code=201)
@@ -23,8 +24,11 @@ def create(
     payload: MuscleGroupCreate,
     current_user: Annotated[AppUserModel, Depends(require_admin)],
     db: DatabaseSession,
+    audit_context: RequestAuditContext,
 ):
-    return muscle_group_controller.create_muscle_group(db, payload, current_user)
+    return muscle_group_controller.create_muscle_group(
+        db, payload, current_user, audit_context=audit_context
+    )
 
 
 @router.get("/", response_model=list[MuscleGroupResponse])
@@ -53,8 +57,11 @@ def update(
     payload: MuscleGroupUpdate,
     current_user: Annotated[AppUserModel, Depends(require_admin)],
     db: DatabaseSession,
+    audit_context: RequestAuditContext,
 ):
-    return muscle_group_controller.update_muscle_group(db, muscle_group_id, payload, current_user)
+    return muscle_group_controller.update_muscle_group(
+        db, muscle_group_id, payload, current_user, audit_context=audit_context
+    )
 
 
 @router.delete("/{muscle_group_id}", status_code=204, response_class=Response)
@@ -62,6 +69,9 @@ def delete(
     muscle_group_id: MuscleGroupId,
     current_user: Annotated[AppUserModel, Depends(require_admin)],
     db: DatabaseSession,
+    audit_context: RequestAuditContext,
 ):
-    muscle_group_controller.delete_muscle_group(db, muscle_group_id, current_user)
+    muscle_group_controller.delete_muscle_group(
+        db, muscle_group_id, current_user, audit_context=audit_context
+    )
     return Response(status_code=204)

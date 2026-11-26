@@ -2,8 +2,11 @@ from fastapi import HTTPException
 from sqlalchemy import inspect, or_, text
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.models.muscle_group_model import MuscleGroupModel
 from app.models.muscle_workout_model import MuscleRole, MuscleWorkoutModel
 from app.models.workout_model import WorkoutModel
@@ -61,7 +64,10 @@ def _find_association(db: Session, workout_id: int, muscle_group_id: int) -> Mus
 
 
 def create_muscle_workout(
-    db: Session, payload: MuscleWorkoutCreate, current_user: AppUserModel | None = None
+    db: Session,
+    payload: MuscleWorkoutCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> MuscleWorkoutModel:
     _lock_workout(db, payload.workout_id, current_user, for_write=True)
     _validate_muscle_group(db, payload.muscle_group_id)
@@ -70,6 +76,15 @@ def create_muscle_workout(
         raise HTTPException(409, "This workout and muscle group are already associated")
     record = MuscleWorkoutModel(**payload.model_dump())
     db.add(record)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(
+            db,
+            "muscle_workout",
+            f"{record.workout_id}:{record.muscle_group_id}",
+            AuditAction.INSERT,
+            audit_context,
+        )
     db.commit()
     db.refresh(record)
     return record
@@ -114,6 +129,7 @@ def update_muscle_workout(
     muscle_group_id: int,
     payload: MuscleWorkoutUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> MuscleWorkoutModel:
     _lock_workout(db, workout_id, current_user, for_write=True)
     record = _find_association(db, workout_id, muscle_group_id)
@@ -125,16 +141,36 @@ def update_muscle_workout(
         raise HTTPException(422, "The weighing must match the muscle role") from exc
     record.muscle_role = role
     record.weighing = weighing
+    if audit_context is not None:
+        record_audit_event(
+            db,
+            "muscle_workout",
+            f"{workout_id}:{muscle_group_id}",
+            AuditAction.UPDATE,
+            audit_context,
+        )
     db.commit()
     db.refresh(record)
     return record
 
 
 def delete_muscle_workout(
-    db: Session, workout_id: int, muscle_group_id: int, current_user: AppUserModel | None = None
+    db: Session,
+    workout_id: int,
+    muscle_group_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     _lock_workout(db, workout_id, current_user, for_write=True)
     record = _find_association(db, workout_id, muscle_group_id)
     _ensure_no_recorded_sets(db, workout_id)
     db.delete(record)
+    if audit_context is not None:
+        record_audit_event(
+            db,
+            "muscle_workout",
+            f"{workout_id}:{muscle_group_id}",
+            AuditAction.DELETE,
+            audit_context,
+        )
     db.commit()

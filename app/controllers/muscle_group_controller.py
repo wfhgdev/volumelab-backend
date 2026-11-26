@@ -2,8 +2,11 @@ from fastapi import HTTPException
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import resolve_owner_id
 from app.models.app_user_model import AppUserModel, RoleUser
+from app.models.audit_model import AuditAction
 from app.models.muscle_group_model import MuscleGroupModel
 from app.schemas.muscle_group_schema import MuscleGroupCreate, MuscleGroupUpdate
 
@@ -47,6 +50,7 @@ def create_muscle_group(
     db: Session,
     payload: MuscleGroupCreate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> MuscleGroupModel:
     if current_user is not None:
         creator_id = resolve_owner_id(current_user, payload.created_by)
@@ -58,6 +62,9 @@ def create_muscle_group(
     data["created_by"] = creator_id
     record = MuscleGroupModel(**data)
     db.add(record)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(db, "muscle_group", str(record.id), AuditAction.INSERT, audit_context)
     db.commit()
     db.refresh(record)
     return record
@@ -89,6 +96,7 @@ def update_muscle_group(
     muscle_group_id: int,
     payload: MuscleGroupUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> MuscleGroupModel:
     record = _find_muscle_group(db, muscle_group_id, lock=True)
     changes = payload.model_dump(exclude_unset=True)
@@ -98,6 +106,8 @@ def update_muscle_group(
         _validate_unique_name(db, changes["name"], muscle_group_id)
     for field_name, value in changes.items():
         setattr(record, field_name, value)
+    if audit_context is not None:
+        record_audit_event(db, "muscle_group", str(record.id), AuditAction.UPDATE, audit_context)
     db.commit()
     db.refresh(record)
     return record
@@ -107,6 +117,7 @@ def delete_muscle_group(
     db: Session,
     muscle_group_id: int,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     record = _find_muscle_group(db, muscle_group_id, lock=True)
     if inspect(db.get_bind()).has_table("muscle_workout"):
@@ -116,5 +127,8 @@ def delete_muscle_group(
         ).first()
         if association is not None:
             raise HTTPException(409, "No se puede eliminar un grupo muscular asociado a ejercicios")
+    record_id = str(record.id)
     db.delete(record)
+    if audit_context is not None:
+        record_audit_event(db, "muscle_group", record_id, AuditAction.DELETE, audit_context)
     db.commit()

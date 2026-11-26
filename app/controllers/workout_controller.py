@@ -3,8 +3,11 @@ from pydantic import ValidationError
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import is_admin, resolve_owner_id
 from app.models.app_user_model import AppUserModel, RoleUser
+from app.models.audit_model import AuditAction
 from app.models.workout_model import ExerciseType, WorkoutModel
 from app.schemas.workout_schema import WorkoutBase, WorkoutCreate, WorkoutUpdate
 
@@ -53,6 +56,7 @@ def create_workout(
     db: Session,
     payload: WorkoutCreate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutModel:
     if current_user is not None:
         creator_id = resolve_owner_id(current_user, payload.created_by)
@@ -64,6 +68,9 @@ def create_workout(
     data["created_by"] = creator_id
     workout = WorkoutModel(**data)
     db.add(workout)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(db, "workout", str(workout.id), AuditAction.INSERT, audit_context)
     db.commit()
     db.refresh(workout)
     return workout
@@ -119,6 +126,7 @@ def update_workout(
     workout_id: int,
     payload: WorkoutUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutModel:
     workout = _find_workout(db, workout_id, lock=True)
 
@@ -156,6 +164,8 @@ def update_workout(
     for field_name, value in changes.items():
         setattr(workout, field_name, value)
 
+    if audit_context is not None:
+        record_audit_event(db, "workout", str(workout.id), AuditAction.UPDATE, audit_context)
     db.commit()
     db.refresh(workout)
     return workout
@@ -165,6 +175,7 @@ def delete_workout(
     db: Session,
     workout_id: int,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     workout = _find_workout(db, workout_id, lock=True)
 
@@ -175,4 +186,6 @@ def delete_workout(
             raise HTTPException(404, "Ejercicio no encontrado")
 
     workout.state = False
+    if audit_context is not None:
+        record_audit_event(db, "workout", str(workout.id), AuditAction.DELETE, audit_context)
     db.commit()

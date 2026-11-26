@@ -11,7 +11,7 @@ from app.controllers.weight_history_controller import (
     update_weight_history,
 )
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.schemas.weight_history_schema import (
     WeightHistoryCreate,
@@ -23,6 +23,7 @@ from app.schemas.weight_history_schema import (
 router = APIRouter(prefix="/weight-history", tags=["Weight history"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=WeightHistoryResponse, status_code=status.HTTP_201_CREATED)
@@ -30,8 +31,9 @@ def create(
     payload: WeightHistoryCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
-    return create_weight_history(db, payload, current_user)
+    return create_weight_history(db, payload, current_user, audit_context=audit_context)
 
 
 @router.get("/", response_model=list[WeightHistoryResponse])
@@ -60,8 +62,11 @@ def update(
     payload: WeightHistoryUpdate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
-    return update_weight_history(db, weight_history_id, payload, current_user)
+    return update_weight_history(
+        db, weight_history_id, payload, current_user, audit_context=audit_context
+    )
 
 
 @router.delete("/{weight_history_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -69,6 +74,7 @@ def delete(
     weight_history_id: int,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
-    delete_weight_history(db, weight_history_id, current_user)
+    delete_weight_history(db, weight_history_id, current_user, audit_context=audit_context)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
