@@ -4,8 +4,11 @@ from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin, resolve_owner_id
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.models.session_rate_model import SessionRateModel
 from app.models.workout_session_model import WorkoutSessionModel
 from app.schemas.session_rate_schema import (
@@ -15,7 +18,10 @@ from app.schemas.session_rate_schema import (
 
 
 def create_session_rate(
-    db: Session, session_rate: SessionRateCreate, current_user: AppUserModel | None = None
+    db: Session,
+    session_rate: SessionRateCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> SessionRateModel:
     """
     Crea una nueva valoración para una sesión de entrenamiento pública.
@@ -45,6 +51,11 @@ def create_session_rate(
 
     try:
         db.add(db_session_rate)
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(
+                db, "session_rate", str(db_session_rate.id), AuditAction.INSERT, audit_context
+            )
         db.commit()
         db.refresh(db_session_rate)
         return db_session_rate
@@ -157,6 +168,7 @@ def update_session_rate(
     rate_id: int,
     session_rate_update: SessionRateUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> SessionRateModel:
     """
     Actualiza la puntuación de una valoración de sesión existente.
@@ -164,6 +176,11 @@ def update_session_rate(
     db_rate = get_session_rate_by_id(db, rate_id, current_user)
     db_rate.rate = session_rate_update.rate
     try:
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(
+                db, "session_rate", str(db_rate.id), AuditAction.UPDATE, audit_context
+            )
         db.commit()
         db.refresh(db_rate)
         return db_rate
@@ -178,7 +195,10 @@ def update_session_rate(
 
 
 def upsert_session_rate(
-    db: Session, session_rate: SessionRateCreate, current_user: AppUserModel | None = None
+    db: Session,
+    session_rate: SessionRateCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> SessionRateModel:
     """
     Crea o actualiza la valoración de un usuario sobre una sesión (RN-18).
@@ -192,19 +212,34 @@ def upsert_session_rate(
 
     if existing_rate is not None:
         existing_rate.rate = session_rate.rate
+        if audit_context is not None:
+            record_audit_event(
+                db, "session_rate", str(existing_rate.id), AuditAction.UPDATE, audit_context
+            )
         db.commit()
         db.refresh(existing_rate)
         return existing_rate
 
-    return create_session_rate(db=db, session_rate=session_rate, current_user=current_user)
+    return create_session_rate(
+        db=db,
+        session_rate=session_rate,
+        current_user=current_user,
+        audit_context=audit_context,
+    )
 
 
 def delete_session_rate(
-    db: Session, rate_id: int, current_user: AppUserModel | None = None
+    db: Session,
+    rate_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     """Elimina una valoración de sesión por su ID primario."""
     db_rate = get_session_rate_by_id(db, rate_id, current_user)
+    record_id = str(db_rate.id)
     db.delete(db_rate)
+    if audit_context is not None:
+        record_audit_event(db, "session_rate", record_id, AuditAction.DELETE, audit_context)
     db.commit()
 
 

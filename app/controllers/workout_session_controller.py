@@ -2,8 +2,11 @@ from typing import List, Optional
 from fastapi import HTTPException, status as http_status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin, resolve_owner_id
 from app.models.app_user_model import AppUserModel, RoleUser
+from app.models.audit_model import AuditAction
 from app.models.mesocycle_model import MesocycleModel
 from app.models.training_week_model import TrainingWeekModel
 from app.models.workout_session_model import WorkoutSessionModel
@@ -122,7 +125,10 @@ def _validate_public_session_quota(
 
 
 def create_workout_session(
-    db: Session, workout_session: WorkoutSessionCreate, current_user: AppUserModel | None = None
+    db: Session,
+    workout_session: WorkoutSessionCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutSessionModel:
     if current_user is not None:
         owner_id = resolve_owner_id(current_user, workout_session.user_id)
@@ -148,6 +154,11 @@ def create_workout_session(
         status=workout_session.status,
     )
     db.add(db_workout_session)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(
+            db, "workout_session", str(db_workout_session.id), AuditAction.INSERT, audit_context
+        )
     db.commit()
     db.refresh(db_workout_session)
     return db_workout_session
@@ -158,6 +169,7 @@ def update_workout_session(
     workout_session_id: int,
     workout_session_update: WorkoutSessionUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutSessionModel:
     db_workout_session = db.get(WorkoutSessionModel, workout_session_id)
     if not db_workout_session:
@@ -215,13 +227,20 @@ def update_workout_session(
     for key, value in update_data.items():
         setattr(db_workout_session, key, value)
 
+    if audit_context is not None:
+        record_audit_event(
+            db, "workout_session", str(db_workout_session.id), AuditAction.UPDATE, audit_context
+        )
     db.commit()
     db.refresh(db_workout_session)
     return db_workout_session
 
 
 def delete_workout_session(
-    db: Session, workout_session_id: int, current_user: AppUserModel | None = None
+    db: Session,
+    workout_session_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     db_workout_session = db.get(WorkoutSessionModel, workout_session_id)
     if not db_workout_session:
@@ -235,5 +254,8 @@ def delete_workout_session(
             db_workout_session.user_id,
             is_private=not db_workout_session.public,
         )
+    record_id = str(db_workout_session.id)
     db.delete(db_workout_session)
+    if audit_context is not None:
+        record_audit_event(db, "workout_session", record_id, AuditAction.DELETE, audit_context)
     db.commit()

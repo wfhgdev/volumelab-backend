@@ -1,8 +1,11 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.models.training_week_model import TrainingWeekModel
 from app.models.mesocycle_model import MesocycleModel
 from app.schemas.training_week_schema import TrainingWeekCreate, TrainingWeekUpdate
@@ -45,7 +48,10 @@ def get_training_week_by_id(
 
 
 def create_training_week(
-    db: Session, training_week: TrainingWeekCreate, current_user: AppUserModel | None = None
+    db: Session,
+    training_week: TrainingWeekCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> TrainingWeekModel:
     # 1. Validar fechas de inicio y fin
     if training_week.end_date < training_week.start_date:
@@ -77,6 +83,11 @@ def create_training_week(
         end_date=training_week.end_date
     )
     db.add(db_training_week)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(
+            db, "training_week", str(db_training_week.id), AuditAction.INSERT, audit_context
+        )
     db.commit()
     db.refresh(db_training_week)
     return db_training_week
@@ -87,6 +98,7 @@ def update_training_week(
     training_week_id: int,
     training_week_update: TrainingWeekUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> TrainingWeekModel:
     db_training_week = get_training_week_by_id(db, training_week_id, current_user)
 
@@ -144,14 +156,24 @@ def update_training_week(
     for key, value in update_data.items():
         setattr(db_training_week, key, value)
 
+    if audit_context is not None:
+        record_audit_event(
+            db, "training_week", str(db_training_week.id), AuditAction.UPDATE, audit_context
+        )
     db.commit()
     db.refresh(db_training_week)
     return db_training_week
 
 
 def delete_training_week(
-    db: Session, training_week_id: int, current_user: AppUserModel | None = None
+    db: Session,
+    training_week_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     db_training_week = get_training_week_by_id(db, training_week_id, current_user)
+    record_id = str(db_training_week.id)
     db.delete(db_training_week)
+    if audit_context is not None:
+        record_audit_event(db, "training_week", record_id, AuditAction.DELETE, audit_context)
     db.commit()

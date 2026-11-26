@@ -11,7 +11,7 @@ from app.controllers.workout_set_controller import (
     update_workout_set,
 )
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.schemas.workout_set_schema import (
     WorkoutSetCreate,
@@ -23,6 +23,7 @@ from app.schemas.workout_set_schema import (
 router = APIRouter(prefix="/workout-sets", tags=["Workout sets"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=WorkoutSetResponse, status_code=status.HTTP_201_CREATED)
@@ -30,8 +31,9 @@ def create(
     payload: WorkoutSetCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
-    return create_workout_set(db, payload, current_user)
+    return create_workout_set(db, payload, current_user, audit_context=audit_context)
 
 
 @router.get("/", response_model=list[WorkoutSetResponse])
@@ -68,8 +70,11 @@ def update(
     payload: WorkoutSetUpdate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
-    return update_workout_set(db, workout_set_id, payload, current_user)
+    return update_workout_set(
+        db, workout_set_id, payload, current_user, audit_context=audit_context
+    )
 
 
 @router.delete("/{workout_set_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -77,6 +82,7 @@ def delete(
     workout_set_id: int,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
-    delete_workout_set(db, workout_set_id, current_user)
+    delete_workout_set(db, workout_set_id, current_user, audit_context=audit_context)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

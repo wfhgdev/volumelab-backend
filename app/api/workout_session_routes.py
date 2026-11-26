@@ -2,7 +2,7 @@ from typing import Annotated, List, Optional
 from fastapi import APIRouter, Depends, Query, status as http_status
 from sqlalchemy.orm import Session
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.schemas.workout_session_schema import (
     SessionStatusEnum,
@@ -16,6 +16,7 @@ from app.controllers import workout_session_controller
 router = APIRouter(prefix="/workout-sessions", tags=["Workout Sessions"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=WorkoutSessionResponse, status_code=http_status.HTTP_201_CREATED)
@@ -23,9 +24,13 @@ def create_new_workout_session(
     workout_session: WorkoutSessionCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     return workout_session_controller.create_workout_session(
-        db=db, workout_session=workout_session, current_user=current_user
+        db=db,
+        workout_session=workout_session,
+        current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -69,12 +74,14 @@ def update_workout_session(
     workout_session_update: WorkoutSessionUpdate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     return workout_session_controller.update_workout_session(
         db=db,
         workout_session_id=workout_session_id,
         workout_session_update=workout_session_update,
         current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -83,8 +90,12 @@ def delete_workout_session(
     workout_session_id: int,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     workout_session_controller.delete_workout_session(
-        db=db, workout_session_id=workout_session_id, current_user=current_user
+        db=db,
+        workout_session_id=workout_session_id,
+        current_user=current_user,
+        audit_context=audit_context,
     )
     return None

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.controllers import session_rate_controller
 from app.schemas.session_rate_schema import (
@@ -16,6 +16,7 @@ from app.schemas.session_rate_schema import (
 router = APIRouter(prefix="/session-rates", tags=["Session Rates"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post(
@@ -29,9 +30,13 @@ def create_new_session_rate(
     session_rate: SessionRateCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     return session_rate_controller.create_session_rate(
-        db=db, session_rate=session_rate, current_user=current_user
+        db=db,
+        session_rate=session_rate,
+        current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -46,9 +51,13 @@ def upsert_session_rate(
     session_rate: SessionRateCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     return session_rate_controller.upsert_session_rate(
-        db=db, session_rate=session_rate, current_user=current_user
+        db=db,
+        session_rate=session_rate,
+        current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -139,12 +148,14 @@ def update_session_rate(
     session_rate_update: SessionRateUpdate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     return session_rate_controller.update_session_rate(
         db=db,
         rate_id=rate_id,
         session_rate_update=session_rate_update,
         current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -158,8 +169,9 @@ def delete_session_rate(
     rate_id: int,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     session_rate_controller.delete_session_rate(
-        db=db, rate_id=rate_id, current_user=current_user
+        db=db, rate_id=rate_id, current_user=current_user, audit_context=audit_context
     )
     return None

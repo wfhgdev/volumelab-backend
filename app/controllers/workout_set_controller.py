@@ -5,8 +5,11 @@ from sqlalchemy import or_, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.models.workout_session_model import WorkoutSessionModel
 from app.models.workout_set_model import (
     WorkoutSetExerciseType,
@@ -238,7 +241,10 @@ def _raise_dbapi_error(exc: DBAPIError) -> None:
 
 
 def create_workout_set(
-    db: Session, payload: WorkoutSetCreate, current_user: AppUserModel | None = None
+    db: Session,
+    payload: WorkoutSetCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutSetModel:
     session = db.get(WorkoutSessionModel, payload.session_id)
     if not session:
@@ -276,6 +282,9 @@ def create_workout_set(
     )
     try:
         db.add(record)
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(db, "workout_set", str(record.id), AuditAction.INSERT, audit_context)
         db.commit()
         db.refresh(record)
         return record
@@ -347,6 +356,7 @@ def update_workout_set(
     workout_set_id: int,
     payload: WorkoutSetUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutSetModel:
     record = get_workout_set(db, workout_set_id, current_user)
     if current_user is not None:
@@ -396,6 +406,9 @@ def update_workout_set(
     record.one_rm_percentage = one_rm_percentage
 
     try:
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(db, "workout_set", str(record.id), AuditAction.UPDATE, audit_context)
         db.commit()
         db.refresh(record)
         return record
@@ -408,7 +421,10 @@ def update_workout_set(
 
 
 def delete_workout_set(
-    db: Session, workout_set_id: int, current_user: AppUserModel | None = None
+    db: Session,
+    workout_set_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     record = get_workout_set(db, workout_set_id, current_user)
     if current_user is not None:
@@ -419,8 +435,12 @@ def delete_workout_set(
             is_private=not (session.public if session else False),
         )
     _get_session_bodyweight(db, record.session_id)
+    record_id = str(record.id)
     try:
         db.delete(record)
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(db, "workout_set", record_id, AuditAction.DELETE, audit_context)
         db.commit()
     except DBAPIError as exc:
         db.rollback()

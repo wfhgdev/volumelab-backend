@@ -2,7 +2,7 @@ from typing import Annotated, Optional, List
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.schemas.mesocycle_schema import (
     MesocycleCreate,
@@ -16,6 +16,7 @@ from app.controllers import mesocycle_controller
 router = APIRouter(prefix="/mesocycles", tags=["Mesocycles"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=MesocycleResponse, status_code=status.HTTP_201_CREATED)
@@ -23,9 +24,12 @@ def create_new_mesocycle(
     mesocycle: MesocycleCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     """Crea un nuevo mesociclo asociado a un usuario."""
-    return mesocycle_controller.create_mesocycle(db=db, mesocycle=mesocycle, current_user=current_user)
+    return mesocycle_controller.create_mesocycle(
+        db=db, mesocycle=mesocycle, current_user=current_user, audit_context=audit_context
+    )
 
 
 @router.get("/", response_model=List[MesocycleResponse], status_code=status.HTTP_200_OK)
@@ -65,13 +69,15 @@ def update_mesocycle(
     mesocycle_update: MesocycleUpdate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     """Actualiza los datos de un mesociclo existente."""
     return mesocycle_controller.update_mesocycle(
         db=db,
         mesocycle_id=mesocycle_id,
         mesocycle_update=mesocycle_update,
-        current_user=current_user
+        current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -80,7 +86,10 @@ def delete_mesocycle(
     mesocycle_id: int,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     """Elimina un mesociclo por su ID."""
-    mesocycle_controller.delete_mesocycle(db=db, mesocycle_id=mesocycle_id, current_user=current_user)
+    mesocycle_controller.delete_mesocycle(
+        db=db, mesocycle_id=mesocycle_id, current_user=current_user, audit_context=audit_context
+    )
     return None

@@ -1,9 +1,12 @@
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+from app.controllers.audit_controller import record_audit_event
+from app.models.audit_model import AuditAction
 from app.models.mesocycle_model import MesocycleModel, MesocycleStatus
 from app.models.app_user_model import AppUserModel
 from app.schemas.mesocycle_schema import MesocycleCreate, MesocycleUpdate
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin, resolve_owner_id
 from app.core.exceptions import (
     MesocycleNotFoundException,
@@ -41,7 +44,10 @@ def get_mesocycle_by_id(db: Session, mesocycle_id: int, current_user: AppUserMod
 
 
 def create_mesocycle(
-    db: Session, mesocycle: MesocycleCreate, current_user: AppUserModel | None = None
+    db: Session,
+    mesocycle: MesocycleCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> MesocycleModel:
     # Validar fechas
     if mesocycle.end_date < mesocycle.start_date:
@@ -65,6 +71,9 @@ def create_mesocycle(
         status=MesocycleStatus(mesocycle.status.value)
     )
     db.add(db_mesocycle)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(db, "mesocycle", str(db_mesocycle.id), AuditAction.INSERT, audit_context)
     db.commit()
     db.refresh(db_mesocycle)
     return db_mesocycle
@@ -75,6 +84,7 @@ def update_mesocycle(
     mesocycle_id: int,
     mesocycle_update: MesocycleUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> MesocycleModel:
     db_mesocycle = get_mesocycle_by_id(db, mesocycle_id, current_user)
 
@@ -100,12 +110,22 @@ def update_mesocycle(
     for key, value in update_data.items():
         setattr(db_mesocycle, key, value)
 
+    if audit_context is not None:
+        record_audit_event(db, "mesocycle", str(db_mesocycle.id), AuditAction.UPDATE, audit_context)
     db.commit()
     db.refresh(db_mesocycle)
     return db_mesocycle
 
 
-def delete_mesocycle(db: Session, mesocycle_id: int, current_user: AppUserModel | None = None) -> None:
+def delete_mesocycle(
+    db: Session,
+    mesocycle_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
+) -> None:
     db_mesocycle = get_mesocycle_by_id(db, mesocycle_id, current_user)
+    record_id = str(db_mesocycle.id)
     db.delete(db_mesocycle)
+    if audit_context is not None:
+        record_audit_event(db, "mesocycle", record_id, AuditAction.DELETE, audit_context)
     db.commit()

@@ -2,7 +2,7 @@ from typing import Annotated, Optional, List
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user
 from app.models.app_user_model import AppUserModel
 from app.schemas.training_week_schema import (
     TrainingWeekCreate,
@@ -15,6 +15,7 @@ from app.controllers import training_week_controller
 router = APIRouter(prefix="/training-weeks", tags=["Training Weeks"])
 DatabaseSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[AppUserModel, Depends(get_current_user)]
+RequestAuditContext = Annotated[AuditContext, Depends(get_audit_context)]
 
 
 @router.post("/", response_model=TrainingWeekResponse, status_code=status.HTTP_201_CREATED)
@@ -22,10 +23,11 @@ def create_new_training_week(
     training_week: TrainingWeekCreate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     """Crea una nueva semana de entrenamiento vinculada a un mesociclo."""
     return training_week_controller.create_training_week(
-        db=db, training_week=training_week, current_user=current_user
+        db=db, training_week=training_week, current_user=current_user, audit_context=audit_context
     )
 
 
@@ -65,13 +67,15 @@ def update_training_week(
     training_week_update: TrainingWeekUpdate,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     """Actualiza los datos de una semana de entrenamiento existente."""
     return training_week_controller.update_training_week(
         db=db,
         training_week_id=training_week_id,
         training_week_update=training_week_update,
-        current_user=current_user
+        current_user=current_user,
+        audit_context=audit_context,
     )
 
 
@@ -80,9 +84,13 @@ def delete_training_week(
     training_week_id: int,
     db: DatabaseSession,
     current_user: CurrentUser,
+    audit_context: RequestAuditContext,
 ):
     """Elimina una semana de entrenamiento por su ID."""
     training_week_controller.delete_training_week(
-        db=db, training_week_id=training_week_id, current_user=current_user
+        db=db,
+        training_week_id=training_week_id,
+        current_user=current_user,
+        audit_context=audit_context,
     )
     return None

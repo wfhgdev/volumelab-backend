@@ -4,8 +4,11 @@ from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import ensure_owner_or_admin, is_admin, resolve_owner_id
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.models.workout_model import WorkoutModel
 from app.models.workout_rate_model import WorkoutRateModel
 from app.schemas.workout_rate_schema import (
@@ -15,7 +18,10 @@ from app.schemas.workout_rate_schema import (
 
 
 def create_workout_rate(
-    db: Session, workout_rate: WorkoutRateCreate, current_user: AppUserModel | None = None
+    db: Session,
+    workout_rate: WorkoutRateCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutRateModel:
     """
     Crea una nueva valoración para un ejercicio público y activo.
@@ -45,6 +51,11 @@ def create_workout_rate(
 
     try:
         db.add(db_workout_rate)
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(
+                db, "workout_rate", str(db_workout_rate.id), AuditAction.INSERT, audit_context
+            )
         db.commit()
         db.refresh(db_workout_rate)
         return db_workout_rate
@@ -157,6 +168,7 @@ def update_workout_rate(
     rate_id: int,
     workout_rate_update: WorkoutRateUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutRateModel:
     """
     Actualiza la puntuación de una valoración existente.
@@ -164,6 +176,11 @@ def update_workout_rate(
     db_rate = get_workout_rate_by_id(db, rate_id, current_user)
     db_rate.rate = workout_rate_update.rate
     try:
+        db.flush()
+        if audit_context is not None:
+            record_audit_event(
+                db, "workout_rate", str(db_rate.id), AuditAction.UPDATE, audit_context
+            )
         db.commit()
         db.refresh(db_rate)
         return db_rate
@@ -178,7 +195,10 @@ def update_workout_rate(
 
 
 def upsert_workout_rate(
-    db: Session, workout_rate: WorkoutRateCreate, current_user: AppUserModel | None = None
+    db: Session,
+    workout_rate: WorkoutRateCreate,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> WorkoutRateModel:
     """
     Crea o actualiza la valoración de un usuario sobre un ejercicio (RN-18: 1 voto por usuario y recurso actualizable).
@@ -192,19 +212,34 @@ def upsert_workout_rate(
 
     if existing_rate is not None:
         existing_rate.rate = workout_rate.rate
+        if audit_context is not None:
+            record_audit_event(
+                db, "workout_rate", str(existing_rate.id), AuditAction.UPDATE, audit_context
+            )
         db.commit()
         db.refresh(existing_rate)
         return existing_rate
 
-    return create_workout_rate(db=db, workout_rate=workout_rate, current_user=current_user)
+    return create_workout_rate(
+        db=db,
+        workout_rate=workout_rate,
+        current_user=current_user,
+        audit_context=audit_context,
+    )
 
 
 def delete_workout_rate(
-    db: Session, rate_id: int, current_user: AppUserModel | None = None
+    db: Session,
+    rate_id: int,
+    current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     """Elimina una valoración por su ID primario."""
     db_rate = get_workout_rate_by_id(db, rate_id, current_user)
+    record_id = str(db_rate.id)
     db.delete(db_rate)
+    if audit_context is not None:
+        record_audit_event(db, "workout_rate", record_id, AuditAction.DELETE, audit_context)
     db.commit()
 
 
