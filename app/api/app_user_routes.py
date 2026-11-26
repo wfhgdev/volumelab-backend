@@ -11,7 +11,7 @@ from app.controllers.app_user_controller import (
     update_app_user,
 )
 from app.core.database_connection import get_db
-from app.core.dependencies import get_current_user, require_admin
+from app.core.dependencies import AuditContext, get_audit_context, get_current_user, require_admin
 from app.models.app_user_model import AppUserModel
 from app.schemas.app_user_schema import AppUserCreate, AppUserResponse, AppUserUpdate
 
@@ -22,9 +22,10 @@ router = APIRouter(prefix="/app-users", tags=["App users"])
 def create(
     payload: AppUserCreate,
     current_user: Annotated[AppUserModel, Depends(require_admin)],
+    audit_context: Annotated[AuditContext, Depends(get_audit_context)],
     db: Session = Depends(get_db),
 ):
-    return create_app_user(db, payload)
+    return create_app_user(db, payload, audit_context=audit_context)
 
 
 @router.get("/", response_model=list[AppUserResponse])
@@ -51,16 +52,18 @@ def update(
     app_user_id: int,
     payload: AppUserUpdate,
     current_user: Annotated[AppUserModel, Depends(get_current_user)],
+    audit_context: Annotated[AuditContext, Depends(get_audit_context)],
     db: Session = Depends(get_db),
 ):
-    return update_app_user(db, app_user_id, payload, current_user)
+    return update_app_user(db, app_user_id, payload, current_user, audit_context=audit_context)
 
 
 @router.delete("/{app_user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete(
     app_user_id: int,
     current_user: Annotated[AppUserModel, Depends(get_current_user)],
+    audit_context: Annotated[AuditContext, Depends(get_audit_context)],
     db: Session = Depends(get_db),
 ):
-    delete_app_user(db, app_user_id, current_user)
+    delete_app_user(db, app_user_id, current_user, audit_context=audit_context)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

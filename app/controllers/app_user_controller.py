@@ -2,13 +2,20 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
+from app.core.dependencies import AuditContext
 from app.core.permissions import is_admin
 from app.core.security import hash_password
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.schemas.app_user_schema import AppUserCreate, AppUserUpdate
 
 
-def create_app_user(db: Session, payload: AppUserCreate) -> AppUserModel:
+def create_app_user(
+    db: Session,
+    payload: AppUserCreate,
+    audit_context: AuditContext | None = None,
+) -> AppUserModel:
     existing = db.query(AppUserModel).filter(
         func.lower(AppUserModel.email) == payload.email.lower()
     ).first()
@@ -21,6 +28,9 @@ def create_app_user(db: Session, payload: AppUserCreate) -> AppUserModel:
 
     app_user = AppUserModel(**data)
     db.add(app_user)
+    db.flush()
+    if audit_context is not None:
+        record_audit_event(db, "app_user", str(app_user.id), AuditAction.INSERT, audit_context)
     db.commit()
     db.refresh(app_user)
     return app_user
@@ -47,6 +57,7 @@ def update_app_user(
     app_user_id: int,
     payload: AppUserUpdate,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> AppUserModel:
     if current_user is not None and not is_admin(current_user):
         if current_user.id != app_user_id:
@@ -76,6 +87,8 @@ def update_app_user(
     for field, value in update_data.items():
         setattr(app_user, field, value)
 
+    if audit_context is not None:
+        record_audit_event(db, "app_user", str(app_user.id), AuditAction.UPDATE, audit_context)
     db.commit()
     db.refresh(app_user)
     return app_user
@@ -85,11 +98,24 @@ def delete_app_user(
     db: Session,
     app_user_id: int,
     current_user: AppUserModel | None = None,
+    audit_context: AuditContext | None = None,
 ) -> None:
     if current_user is not None and not is_admin(current_user):
         if current_user.id != app_user_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario no encontrado")
 
     app_user = get_app_user(db, app_user_id, current_user)
+    deleted_user_id = app_user.id
     db.delete(app_user)
+    db.flush()
+    if audit_context is not None:
+        is_self_delete = (
+            audit_context.user_id == deleted_user_id
+            or (current_user is not None and current_user.id == deleted_user_id)
+        )
+        delete_context = AuditContext(
+            user_id=None if is_self_delete else audit_context.user_id,
+            endpoint=audit_context.endpoint,
+        )
+        record_audit_event(db, "app_user", str(deleted_user_id), AuditAction.DELETE, delete_context)
     db.commit()

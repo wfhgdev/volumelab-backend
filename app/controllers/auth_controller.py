@@ -2,13 +2,20 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.controllers.audit_controller import record_audit_event
 from app.core.config import settings
+from app.core.dependencies import AuditContext
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.app_user_model import AppUserModel
+from app.models.audit_model import AuditAction
 from app.schemas.auth_schema import LoginRequest, RegisterRequest, TokenResponse
 
 
-def register_user(db: Session, payload: RegisterRequest) -> AppUserModel:
+def register_user(
+    db: Session,
+    payload: RegisterRequest,
+    endpoint: str = "POST /auth/register",
+) -> AppUserModel:
     existing = db.query(AppUserModel).filter(
         func.lower(AppUserModel.email) == payload.email.lower()
     ).first()
@@ -30,6 +37,9 @@ def register_user(db: Session, payload: RegisterRequest) -> AppUserModel:
         status="ACTIVO",
     )
     db.add(user)
+    db.flush()
+    audit_context = AuditContext(user_id=user.id, endpoint=endpoint[:255])
+    record_audit_event(db, "app_user", str(user.id), AuditAction.INSERT, audit_context)
     db.commit()
     db.refresh(user)
     return user

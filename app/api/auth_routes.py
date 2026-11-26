@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.controllers import auth_controller
@@ -22,9 +22,11 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 )
 def register(
     payload: RegisterRequest,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
 ):
-    return auth_controller.register_user(db, payload)
+    endpoint = f"{request.method} {request.url.path}"[:255]
+    return auth_controller.register_user(db, payload, endpoint=endpoint)
 
 
 @router.post(
