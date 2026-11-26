@@ -18,6 +18,7 @@ from app.models.muscle_group_model import MuscleGroupModel
 from app.models.muscle_workout_model import MuscleRole, MuscleWorkoutModel
 from app.models.workout_model import ExerciseType, WorkoutModel
 from app.schemas.muscle_workout_schema import MuscleWorkoutCreate, MuscleWorkoutUpdate
+from tests.conftest import create_auth_headers
 from tests.postgres_fixtures import migrate_database
 
 
@@ -50,7 +51,8 @@ def create_series_table(engine):
 @pytest.fixture(scope="module")
 def association_engine(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
+        migrate_database(engine, "f3a8b91c4d02")
         create_series_table(engine)
         yield engine
 
@@ -70,23 +72,23 @@ def postgres_catalog(association_engine):
 def test_migration_preserves_parent_labels_and_reverses_only_association(postgres_database_factory):
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     graph = ScriptDirectory.from_config(config)
-    assert graph.get_revision("workout@head").revision == "f2a7c8e9d410"
-    assert graph.get_revision("muscle_group@head").revision == "d3c8a51f9072"
+    assert "workout" in graph.get_revision("f2a7c8e9d410").branch_labels
+    assert "muscle_group" in graph.get_revision("d3c8a51f9072").branch_labels
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
         inspector = inspect(engine)
         assert inspector.get_pk_constraint("muscle_workout")["constrained_columns"] == ["workout_id", "muscle_group_id"]
         assert len(inspector.get_columns("muscle_workout")) == 4
         with Session(engine) as db:
             keys = seed_catalog(db)
-        migrate_database(engine, "muscle_workout@-1", downgrade=True)
+        migrate_database(engine, "muscle_workout@base", downgrade=True)
         assert not inspect(engine).has_table("muscle_workout")
         assert inspect(engine).has_table("workout")
         assert inspect(engine).has_table("muscle_group")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT COUNT(*) FROM workout WHERE id = :id"), {"id": keys[0]}).scalar_one() == 1
             assert connection.execute(text("SELECT COUNT(*) FROM muscle_group WHERE id = :id"), {"id": keys[1]}).scalar_one() == 1
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
         assert inspect(engine).has_table("muscle_workout")
 
 
@@ -103,8 +105,8 @@ def test_migration_adopts_existing_tables_and_data(postgres_database_factory):
                 name: connection.execute(text(f"SELECT * FROM {name}")).mappings().all()
                 for name in ("app_user", "workout", "muscle_group", "muscle_workout")
             }
-        migrate_database(engine, "muscle_workout@head")
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
+        migrate_database(engine, "a9d1b6c2e730")
         with engine.connect() as connection:
             for name, rows in original.items():
                 assert connection.execute(text(f"SELECT * FROM {name}")).mappings().all() == rows
@@ -121,7 +123,7 @@ def test_migration_rejects_incompatible_table_atomically(postgres_database_facto
         with engine.begin() as connection:
             connection.execute(text(alteration))
         with pytest.raises(RuntimeError, match="incompatible"):
-            migrate_database(engine, "muscle_workout@head")
+            migrate_database(engine, "a9d1b6c2e730")
         assert not inspect(engine).has_table("alembic_version")
 
 
@@ -169,6 +171,8 @@ def test_native_cascade_removes_only_links_and_deleted_parent(postgres_catalog, 
 @pytest.mark.parametrize("method", ["post", "put", "delete"])
 def test_history_rejections_preserve_association_and_sets(postgres_catalog, method):
     db, keys = postgres_catalog
+    admin = db.query(AppUserModel).first()
+    auth_headers = create_auth_headers(admin)
     controller.create_muscle_workout(db, payload(keys))
     db.execute(text("INSERT INTO workout_set (exercise_id) VALUES (:id)"), {"id": keys[0]})
     db.commit()
@@ -178,7 +182,7 @@ def test_history_rejections_preserve_association_and_sets(postgres_catalog, meth
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        with TestClient(app) as client:
+        with TestClient(app, headers=auth_headers) as client:
             resource = f"/muscle-workouts/{keys[0]}/{keys[1]}"
             if method == "post":
                 response = client.post("/muscle-workouts/", json=payload(keys).model_dump(mode="json"))
@@ -197,9 +201,13 @@ def test_history_rejections_preserve_association_and_sets(postgres_catalog, meth
 @pytest.mark.parametrize("access", ["api", "database"])
 def test_concurrent_duplicate_pairs_leave_one_link(postgres_database_factory, access):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
+        if access == "api":
+            migrate_database(engine, "f3a8b91c4d02")
         with Session(engine) as db:
             keys = seed_catalog(db)
+            admin = db.query(AppUserModel).first()
+            auth_headers = create_auth_headers(admin)
         barrier = Barrier(2)
 
         def override_get_db():
@@ -209,7 +217,7 @@ def test_concurrent_duplicate_pairs_leave_one_link(postgres_database_factory, ac
         def create_concurrently(index):
             barrier.wait(timeout=10)
             if access == "api":
-                with TestClient(app) as client:
+                with TestClient(app, headers=auth_headers) as client:
                     return client.post("/muscle-workouts/", json=payload(keys).model_dump(mode="json")).status_code
             try:
                 with engine.begin() as connection:
@@ -234,10 +242,13 @@ def test_concurrent_duplicate_pairs_leave_one_link(postgres_database_factory, ac
 
 def test_concurrent_first_set_is_seen_after_workout_lock(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
+        migrate_database(engine, "f3a8b91c4d02")
         create_series_table(engine)
         with Session(engine) as db:
             keys = seed_catalog(db)
+            admin = db.query(AppUserModel).first()
+            auth_headers = create_auth_headers(admin)
         lock_attempted = Event()
 
         def observe_lock(connection, cursor, statement, parameters, context, executemany):
@@ -249,7 +260,7 @@ def test_concurrent_first_set_is_seen_after_workout_lock(postgres_database_facto
                 yield db
 
         def create_association():
-            with TestClient(app) as client:
+            with TestClient(app, headers=auth_headers) as client:
                 return client.post("/muscle-workouts/", json=payload(keys).model_dump(mode="json"))
 
         app.dependency_overrides[get_db] = override_get_db

@@ -13,6 +13,7 @@ from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.workout_model import ExerciseType, WorkoutModel
 from app.schemas.workout_schema import WorkoutCreate, WorkoutUpdate
+from tests.conftest import create_auth_headers
 from tests.postgres_fixtures import migrate_database
 
 pytestmark = pytest.mark.postgres
@@ -155,9 +156,12 @@ def test_physical_deletion_is_restricted_when_sets_exist(postgres_db, postgres_u
 def test_concurrent_public_creation_never_exceeds_twenty(postgres_database_factory, access):
     with postgres_database_factory() as engine:
         migrate_database(engine)
+        if access == "api":
+            migrate_database(engine, "f3a8b91c4d02")
         with Session(engine) as db:
             user = add_user(db)
             user_id = user.id
+            auth_headers = create_auth_headers(user)
             db.add_all(
                 [WorkoutModel(name=f"Existing {index}", type=ExerciseType.DYNAMIC, created_by=user_id, public=True) for index in
                  range(19)])
@@ -172,9 +176,12 @@ def test_concurrent_public_creation_never_exceeds_twenty(postgres_database_facto
             barrier.wait(timeout=10)
             if access == "api":
                 with TestClient(app) as client:
-                    return client.post("/workouts/",
-                                       json={"name": f"Concurrent {index}", "type": "DINAMICO", "created_by": user_id,
-                                             "public": True}).status_code
+                    return client.post(
+                        "/workouts/",
+                        json={"name": f"Concurrent {index}", "type": "DINAMICO", "created_by": user_id,
+                              "public": True},
+                        headers=auth_headers,
+                    ).status_code
             try:
                 with engine.begin() as connection:
                     connection.execute(text("SET LOCAL lock_timeout = '10s'"))

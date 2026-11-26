@@ -14,6 +14,7 @@ from app.main import app
 from app.models.app_user_model import AppUserModel
 from app.models.muscle_group_model import MuscleGroupModel
 from app.schemas.muscle_group_schema import MuscleGroupCreate, MuscleGroupUpdate
+from tests.conftest import create_auth_headers
 from tests.postgres_fixtures import migrate_database
 from tests.catalog_support import associate_group
 
@@ -34,7 +35,7 @@ def add_user(db, role="ADMIN", email=None):
 @pytest.fixture(scope="module")
 def group_engine(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_workout@head")
+        migrate_database(engine, "a9d1b6c2e730")
         yield engine
 
 
@@ -52,13 +53,13 @@ def group_db(group_engine):
 
 def test_migration_creates_and_reverses_group_schema(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_group@head")
+        migrate_database(engine, "d3c8a51f9072")
         columns = inspect(engine).get_columns("muscle_group")
         assert {column["name"] for column in columns} == {"id", "name", "description", "created_by"}
         assert columns[0]["identity"]["always"] is True
         migrate_database(engine, "ad8c21f5e9b7", downgrade=True)
         assert not inspect(engine).has_table("muscle_group")
-        migrate_database(engine, "muscle_group@head")
+        migrate_database(engine, "d3c8a51f9072")
         assert inspect(engine).has_table("muscle_group")
 
 
@@ -72,8 +73,8 @@ def test_migration_adopts_unversioned_table_without_losing_data(postgres_databas
             db.commit()
         with engine.connect() as connection:
             original = connection.execute(text("SELECT * FROM muscle_group")).mappings().all()
-        migrate_database(engine, "muscle_group@head")
-        migrate_database(engine, "muscle_group@head")
+        migrate_database(engine, "d3c8a51f9072")
+        migrate_database(engine, "d3c8a51f9072")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT * FROM muscle_group")).mappings().all() == original
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "d3c8a51f9072"
@@ -90,14 +91,14 @@ def test_migration_rejects_incompatible_schema_atomically(postgres_database_fact
         with engine.begin() as connection:
             connection.execute(text(alteration))
         with pytest.raises(RuntimeError, match="incompatible|length of 150"):
-            migrate_database(engine, "muscle_group@head")
+            migrate_database(engine, "d3c8a51f9072")
         assert not inspect(engine).has_table("alembic_version")
 
 
 @pytest.mark.parametrize("disabled", [False, True])
 def test_adoption_validates_and_preserves_existing_trigger(postgres_database_factory, disabled):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_group@head")
+        migrate_database(engine, "d3c8a51f9072")
         with engine.begin() as connection:
             original = connection.execute(text(
                 "SELECT pg_get_functiondef('fn_muscle_group_admin_only()'::regprocedure)"
@@ -107,9 +108,9 @@ def test_adoption_validates_and_preserves_existing_trigger(postgres_database_fac
                 connection.execute(text("ALTER TABLE muscle_group DISABLE TRIGGER trg_muscle_group_admin_only"))
         if disabled:
             with pytest.raises(RuntimeError, match="trigger is incompatible"):
-                migrate_database(engine, "muscle_group@head")
+                migrate_database(engine, "d3c8a51f9072")
         else:
-            migrate_database(engine, "muscle_group@head")
+            migrate_database(engine, "d3c8a51f9072")
         with engine.connect() as connection:
             assert connection.execute(text(
                 "SELECT pg_get_functiondef('fn_muscle_group_admin_only()'::regprocedure)"
@@ -177,7 +178,7 @@ def test_association_protection_and_creator_anonymization(group_db):
 
 def test_deletion_works_with_only_this_migration(postgres_database_factory):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_group@head")
+        migrate_database(engine, "d3c8a51f9072")
         with Session(engine) as db:
             admin = add_user(db)
             record = controller.create_muscle_group(db, MuscleGroupCreate(name="Chest", created_by=admin.id))
@@ -189,9 +190,13 @@ def test_deletion_works_with_only_this_migration(postgres_database_factory):
 @pytest.mark.parametrize("access", ["api", "database"])
 def test_concurrent_duplicate_names_preserve_uniqueness(postgres_database_factory, access):
     with postgres_database_factory() as engine:
-        migrate_database(engine, "muscle_group@head")
+        migrate_database(engine, "d3c8a51f9072")
+        if access == "api":
+            migrate_database(engine, "f3a8b91c4d02")
         with Session(engine) as db:
-            creators = [add_user(db, email=f"admin{index}@example.com").id for index in range(2)]
+            users = [add_user(db, email=f"admin{index}@example.com") for index in range(2)]
+            creators = [user.id for user in users]
+            auth_headers = [create_auth_headers(user) for user in users]
         barrier = Barrier(2)
 
         def override_get_db():
@@ -202,9 +207,11 @@ def test_concurrent_duplicate_names_preserve_uniqueness(postgres_database_factor
             barrier.wait(timeout=10)
             if access == "api":
                 with TestClient(app) as client:
-                    return client.post("/muscle-groups/", json={
-                        "name": "Chest", "created_by": creators[index],
-                    }).status_code
+                    return client.post(
+                        "/muscle-groups/",
+                        json={"name": "Chest", "created_by": creators[index]},
+                        headers=auth_headers[index],
+                    ).status_code
             try:
                 with engine.begin() as connection:
                     connection.execute(text("SET LOCAL lock_timeout = '10s'"))

@@ -14,7 +14,7 @@ def pytest_addoption(parser):
     parser.addoption("--run-postgres", action="store_true", default=False)
 
 
-def migrate_database(engine, target, downgrade=False):
+def migrate_database(engine, target="f2a7c8e9d410", downgrade=False):
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     with engine.begin() as connection:
         config.attributes["connection"] = connection
