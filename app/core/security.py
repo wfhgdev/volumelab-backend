@@ -30,7 +30,7 @@ def create_access_token(user_id: int | str, role: str) -> str:
 
     payload: dict[str, Any] = {
         "sub": str(user_id),
-        "role": str(role),
+        "role": str(getattr(role, "value", role)),
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
     }
