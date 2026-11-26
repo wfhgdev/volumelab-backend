@@ -60,7 +60,7 @@ Principios clave del diseño backend:
 | **ORM / Driver** | SQLAlchemy 2.x + `psycopg` / `asyncpg` | Mapeo relacional, consultas analíticas y gestión de transacciones |
 | **Migraciones** | Alembic | Versionado reproducible del esquema, tipos `ENUM`, vistas y triggers |
 | **Exportación** | CSV (`csv`) / Excel (`openpyxl` o `pandas`) | Exportación de registros y analíticas con trazabilidad en `audit` (**RF-15**) |
-| **Testing** | `pytest` + `httpx` | Pruebas unitarias y de integración contra PostgreSQL |
+| **Testing** | `pytest` + `httpx2` | Pruebas unitarias y de integración contra PostgreSQL |
 
 ---
 
@@ -391,6 +391,16 @@ source env/bin/activate
 # Instalar dependencias
 pip install -r requirements.txt
 ```
+
+Para actualizar un entorno virtual que utilizaba `httpx==0.28.1`, ejecutar con ese entorno activado:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip uninstall -y httpx httpcore certifi
+python -m pip check
+```
+
+`TestClient` de FastAPI utiliza `httpx2==2.16.2` mediante Starlette. No requiere cambiar sus importaciones. `httpcore2` proporciona el transporte HTTP y `truststore` utiliza los certificados de confianza del sistema. La retirada de los paquetes anteriores presupone un entorno virtual dedicado al proyecto.
 
 ### 3. Configuración de variables de entorno
 
