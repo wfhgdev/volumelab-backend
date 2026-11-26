@@ -1,7 +1,8 @@
 from uuid import uuid4
 
-from app.core.security import hash_password
-from app.models.app_user_model import AppUserModel
+import pytest
+
+from app.core.config import settings
 
 
 def test_register_creates_active_cliente(client):
@@ -26,27 +27,15 @@ def test_register_creates_active_cliente(client):
     assert "password_hash" not in data
 
 
-def test_register_rejects_forbidden_fields(client):
+@pytest.mark.parametrize("field, value", [
+    ("role", "ADMIN"), ("password_hash", "stored-hash"), ("status", "ACTIVO"),
+])
+def test_register_rejects_forbidden_fields(client, field, value):
     email = f"hacker_{uuid4().hex}@volumelab.com"
 
-    # Intento de enviar role ADMIN
     response = client.post(
         "/auth/register",
-        json={"name": "Hacker", "email": email, "password": "Password123!", "role": "ADMIN"},
-    )
-    assert response.status_code == 422
-
-    # Intento de enviar password_hash
-    response = client.post(
-        "/auth/register",
-        json={"name": "Hacker", "email": email, "password": "Password123!", "password_hash": "hash"},
-    )
-    assert response.status_code == 422
-
-    # Intento de enviar status
-    response = client.post(
-        "/auth/register",
-        json={"name": "Hacker", "email": email, "password": "Password123!", "status": "ACTIVO"},
+        json={"name": "New member", "email": email, "password": "Password123!", field: value},
     )
     assert response.status_code == 422
 
@@ -69,45 +58,23 @@ def test_register_short_password_returns_422(client):
     assert response.status_code == 422
 
 
-def test_login_success_returns_token(client, db_session):
-    email = f"login_user_{uuid4().hex}@volumelab.com"
-    user = AppUserModel(
-        email=email,
-        password_hash=hash_password("Password123!"),
-        name="Login",
-        role="CLIENTE",
-        status="ACTIVO",
-    )
-    db_session.add(user)
-    db_session.commit()
-
+def test_login_success_returns_token(client, client_user):
     response = client.post(
         "/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": client_user.email, "password": "Client1234!"},
     )
     assert response.status_code == 200
 
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] == 3600
+    assert data["expires_in"] == settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
 
-def test_login_invalid_password_returns_401(client, db_session):
-    email = f"user_{uuid4().hex}@volumelab.com"
-    user = AppUserModel(
-        email=email,
-        password_hash=hash_password("Password123!"),
-        name="User",
-        role="CLIENTE",
-        status="ACTIVO",
-    )
-    db_session.add(user)
-    db_session.commit()
-
+def test_login_invalid_password_returns_401(client, client_user):
     response = client.post(
         "/auth/login",
-        json={"email": email, "password": "WrongPassword!"},
+        json={"email": client_user.email, "password": "WrongPassword!"},
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Credenciales inválidas"
@@ -123,21 +90,12 @@ def test_login_nonexistent_email_returns_same_401(client):
     assert response.json()["detail"] == "Credenciales inválidas"
 
 
-def test_login_blocked_user_returns_403(client, db_session):
-    email = f"blocked_{uuid4().hex}@volumelab.com"
-    user = AppUserModel(
-        email=email,
-        password_hash=hash_password("Password123!"),
-        name="Blocked",
-        role="CLIENTE",
-        status="BLOQUEADO",
-    )
-    db_session.add(user)
-    db_session.commit()
+def test_login_blocked_user_returns_403(client, user_factory):
+    user = user_factory(status="BLOQUEADO")
 
     response = client.post(
         "/auth/login",
-        json={"email": email, "password": "Password123!"},
+        json={"email": user.email, "password": "Client1234!"},
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Usuario bloqueado"

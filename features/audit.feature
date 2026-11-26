@@ -1,42 +1,40 @@
-Feature: Gestión y consulta de registros de auditoría (audit)
-  Como administrador de VolumeLab
-  Quiero consultar los registros de auditoría de operaciones críticas
-  Para garantizar la trazabilidad y cumplimiento RGPD del sistema
+Feature: Audit log access
+  Administrators can inspect audit events while the API prevents direct changes.
 
-  Scenario: Un usuario no autenticado no puede consultar auditoría
-    When intento listar los registros de auditoría sin autenticación
-    Then el estado HTTP de auditoría es 401
+  Scenario: Reject an unauthenticated audit request
+    When I list audit events without authentication
+    Then the audit response status is 401
 
-  Scenario: Un usuario cliente no puede consultar auditoría
-    Given existe un usuario cliente autenticado
-    When intento listar los registros de auditoría como cliente
-    Then el estado HTTP de auditoría es 403
+  Scenario: Reject audit access for clients
+    Given an authenticated client account
+    When I list audit events
+    Then the audit response status is 403
 
-  Scenario: Un administrador puede consultar el listado de auditoría
-    Given existe un usuario administrador autenticado
-    When listo los registros de auditoría como administrador
-    Then el estado HTTP de auditoría es 200
+  Scenario: Allow administrators to list audit events
+    Given an authenticated administrator account
+    When I list audit events
+    Then the audit response status is 200
 
-  Scenario: Un administrador puede filtrar auditorías por acción
-    Given existe un usuario administrador autenticado
-    When listo los registros de auditoría filtrando por acción "INSERT"
-    Then el estado HTTP de auditoría es 200
+  Scenario: Filter audit events by action
+    Given an authenticated administrator account
+    When I list audit events with action "INSERT"
+    Then the audit response status is 200
 
-  Scenario: Rechazar un listado con rango de fechas invertido
-    Given existe un usuario administrador autenticado
-    When listo los registros de auditoría con fecha inicial posterior a la fecha final
-    Then el estado HTTP de auditoría es 400
+  Scenario: Reject an inverted audit date range
+    Given an authenticated administrator account
+    When I list audit events with an inverted date range
+    Then the audit response status is 400
 
-  Scenario: Consultar un registro de auditoría inexistente
-    Given existe un usuario administrador autenticado
-    When consulto el registro de auditoría con identificador 999999
-    Then el estado HTTP de auditoría es 404
+  Scenario: Reject a missing audit event
+    Given an authenticated administrator account
+    When I retrieve audit event 999999
+    Then the audit response status is 404
 
-  Scenario: Los endpoints POST, PUT y DELETE no están permitidos en auditoría
-    Given existe un usuario administrador autenticado
-    When intento crear un registro de auditoría por POST
-    Then el estado HTTP de auditoría es 405
-    When intento modificar un registro de auditoría por PUT
-    Then el estado HTTP de auditoría es 405
-    When intento eliminar un registro de auditoría por DELETE
-    Then el estado HTTP de auditoría es 405
+  Scenario: Reject direct changes to audit events
+    Given an authenticated administrator account
+    When I create an audit event directly
+    Then the audit response status is 405
+    When I update an audit event directly
+    Then the audit response status is 405
+    When I delete an audit event directly
+    Then the audit response status is 405

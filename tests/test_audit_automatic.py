@@ -1,8 +1,12 @@
 from uuid import uuid4
 
+import pytest
+from sqlalchemy import text
+
 from app.core.security import hash_password
 from app.models.app_user_model import AppUserModel
 from app.models.audit_model import AuditAction, AuditModel
+from app.models.workout_model import WorkoutModel
 from tests.conftest import create_auth_headers
 
 
@@ -402,3 +406,73 @@ def test_failed_mutation_does_not_create_audit_entry(user_client, client_user, d
 
     after_count = db_session.query(AuditModel).filter(AuditModel.user_id == client_user.id).count()
     assert after_count == before_count
+
+
+@pytest.mark.parametrize("path", ["/auth/me", "/workouts/", "/muscle-groups/", "/weight-history/"])
+def test_read_requests_do_not_create_audit_events(user_client, db_session, path):
+    before_count = db_session.query(AuditModel).count()
+
+    assert user_client.get(path).status_code == 200
+
+    assert db_session.query(AuditModel).count() == before_count
+
+
+@pytest.mark.parametrize("method, path, payload, expected_status", [
+    ("POST", "/workouts/", {"name": "Invalid exercise"}, 422),
+    ("POST", "/muscle-groups/", {"name": "Forbidden group"}, 403),
+    ("PUT", "/workouts/999999999", {"name": "Missing exercise"}, 404),
+    ("POST", "/workouts/", {"name": "Existing exercise", "type": "DINAMICO"}, 409),
+])
+def test_rejected_mutations_preserve_data_and_audit_events(
+    user_client, db_session, method, path, payload, expected_status,
+):
+    created = user_client.post("/workouts/", json={"name": "Existing exercise", "type": "DINAMICO"})
+    assert created.status_code == 201
+    before_count = db_session.query(AuditModel).count()
+
+    response = user_client.request(method, path, json=payload)
+
+    assert response.status_code == expected_status
+    assert db_session.query(AuditModel).count() == before_count
+    workouts = db_session.query(WorkoutModel).all()
+    assert [(row.id, row.name) for row in workouts] == [(created.json()["id"], "Existing exercise")]
+
+
+def test_audit_storage_failure_rolls_back_business_write(user_client, db_session):
+    db_session.execute(text("""
+        CREATE FUNCTION fn_test_reject_audit_insert() RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'Audit insert rejected' USING ERRCODE = '23514';
+        END;
+        $$ LANGUAGE plpgsql;
+        CREATE TRIGGER trg_test_reject_audit_insert BEFORE INSERT ON audit
+        FOR EACH ROW EXECUTE FUNCTION fn_test_reject_audit_insert();
+    """))
+    db_session.commit()
+
+    response = user_client.post("/workouts/", json={"name": "Uncommitted exercise", "type": "DINAMICO"})
+
+    assert response.status_code == 422
+    assert db_session.query(WorkoutModel).count() == 0
+    assert db_session.query(AuditModel).count() == 0
+    assert user_client.get("/auth/me").status_code == 200
+
+
+def test_audit_preserves_admin_actor_after_workout_creator_deletion(admin_client, db_session, user_factory):
+    target = user_factory()
+    created = admin_client.post("/workouts/", json={
+        "name": "Retained exercise", "type": "DINAMICO", "created_by": target.id,
+    })
+    assert created.status_code == 201
+    workout_id = created.json()["id"]
+    actor_id = _get_audits(db_session, entity="workout", record_id=str(workout_id))[0].user_id
+
+    deleted = admin_client.delete(f"/app-users/{target.id}")
+
+    assert deleted.status_code == 204
+    db_session.expire_all()
+    assert db_session.get(WorkoutModel, workout_id).created_by is None
+    audits = _get_audits(db_session, entity="workout", record_id=str(workout_id))
+    assert len(audits) == 1
+    assert audits[0].user_id == actor_id
+    assert audits[0].endpoint == "POST /workouts/"

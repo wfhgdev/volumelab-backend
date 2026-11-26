@@ -22,18 +22,22 @@ def migrate_database(engine, target="f2a7c8e9d410", downgrade=False):
         operation(config, target)
 
 
+def install_rating_triggers(engine):
+    schema_path = Path(__file__).resolve().parent / "sql" / "rating_triggers.sql"
+    with engine.begin() as connection:
+        connection.execute(text(schema_path.read_text(encoding="utf-8")))
+
+
 @pytest.fixture(scope="session")
-def postgres_database_factory(request):
-    if not request.config.getoption("--run-postgres"):
-        pytest.skip("Use --run-postgres to run isolated PostgreSQL tests")
+def database_factory():
     source = create_engine(settings.database_url)
     admin = create_engine(source.url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     source.dispose()
 
     @contextmanager
-    def isolated_database():
-        database_name = f"volumelab_workout_test_{uuid4().hex[:12]}"
-        if not re.fullmatch(r"volumelab_workout_test_[0-9a-f]{12}", database_name):
+    def isolated_database(database_name=None):
+        database_name = database_name or f"volumelab_test_{uuid4().hex[:12]}"
+        if not re.fullmatch(r"volumelab_test_[0-9a-f]{12}", database_name):
             raise ValueError("Invalid isolated database name")
         quoted_name = admin.dialect.identifier_preparer.quote(database_name)
         with admin.connect() as connection:
@@ -50,6 +54,13 @@ def postgres_database_factory(request):
         yield isolated_database
     finally:
         admin.dispose()
+
+
+@pytest.fixture(scope="session")
+def postgres_database_factory(request, database_factory):
+    if not request.config.getoption("--run-postgres"):
+        pytest.skip("Use --run-postgres to run isolated PostgreSQL tests")
+    return database_factory
 
 
 @pytest.fixture(scope="session")
