@@ -10,6 +10,7 @@ from app.controllers.audit_controller import (
     list_audits,
     record_audit_event,
 )
+from app.core.dependencies import AuditContext
 from app.core.exceptions import (
     AuditDateRangeValidationException,
     AuditNotFoundException,
@@ -112,23 +113,48 @@ def test_create_audit_rolls_back_on_commit_error():
     db.rollback.assert_called_once()
 
 
-def test_record_audit_event_helper_persists_event():
+def test_record_audit_event_helper_flushes_without_commit():
     db = MagicMock()
-    db.execute.return_value.first.return_value = (1,)
+    context = AuditContext(user_id=1, endpoint="DELETE /app-users/1")
 
     result = record_audit_event(
         db,
-        user_id=1,
         entity="app_user",
         record_id=1,
         action="DELETE",
-        endpoint="/app-users/1",
+        context=context,
     )
 
+    assert result.user_id == 1
+    assert result.entity == "app_user"
     assert result.record_id == "1"
     assert result.action == AuditAction.DELETE
-    assert result.endpoint == "/app-users/1"
-    db.commit.assert_called_once()
+    assert result.endpoint == "DELETE /app-users/1"
+    db.add.assert_called_once_with(result)
+    db.flush.assert_called_once()
+    db.commit.assert_not_called()
+
+
+def test_record_audit_event_helper_allows_anonymous_context():
+    db = MagicMock()
+    context = AuditContext(user_id=None, endpoint="DELETE /app-users/5")
+
+    result = record_audit_event(
+        db,
+        "app_user",
+        "5",
+        AuditAction.DELETE,
+        context,
+    )
+
+    assert result.user_id is None
+    assert result.entity == "app_user"
+    assert result.record_id == "5"
+    assert result.action == AuditAction.DELETE
+    assert result.endpoint == "DELETE /app-users/5"
+    db.add.assert_called_once_with(result)
+    db.flush.assert_called_once()
+    db.commit.assert_not_called()
 
 
 def test_list_audits_applies_order_and_pagination():

@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import AuditContext
 from app.core.exceptions import (
     AuditDateRangeValidationException,
     AuditNotFoundException,
@@ -42,25 +43,30 @@ def create_audit(db: Session, payload: AuditCreate) -> AuditModel:
 
 def record_audit_event(
     db: Session,
-    *,
     entity: str,
     record_id: str | int,
     action: AuditAction | str,
-    user_id: int | None = None,
-    endpoint: str | None = None,
+    context: AuditContext | None = None,
 ) -> AuditModel:
-    """Helper reutilizable para registrar un evento en la tabla `audit`."""
+    """Registra un evento en la tabla `audit` dentro de la transacción activa sin hacer commit."""
     resolved_action = (
         action if isinstance(action, AuditAction) else AuditAction(action)
     )
-    payload = AuditCreate(
-        user_id=user_id,
+    endpoint = (
+        context.endpoint[:255]
+        if context is not None and context.endpoint is not None
+        else None
+    )
+    audit_entry = AuditModel(
+        user_id=context.user_id if context is not None else None,
         entity=entity,
         record_id=str(record_id),
         action=resolved_action,
         endpoint=endpoint,
     )
-    return create_audit(db, payload)
+    db.add(audit_entry)
+    db.flush()
+    return audit_entry
 
 
 def list_audits(
