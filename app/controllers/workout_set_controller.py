@@ -63,7 +63,7 @@ def _get_exercise_info(db: Session, exercise_id: int) -> tuple[bool, str, bool, 
         )
     if not bool(row["state"]):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"El ejercicio {exercise_id} está desactivado",
         )
     exercise_type = row["type"]
@@ -81,7 +81,7 @@ def _get_exercise_info(db: Session, exercise_id: int) -> tuple[bool, str, bool, 
 def _validate_reps_duration(reps: int | None, duration_second: int | None) -> None:
     if (reps is None) == (duration_second is None):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Debe indicar exactamente uno de reps o duration_second",
         )
 
@@ -96,12 +96,12 @@ def _validate_ballast(
     value = Decimal(added_weight_kg)
     if value > 0 and not allow_positive:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El ejercicio no permite lastre positivo",
         )
     if value < 0 and not allow_negative:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El ejercicio no permite asistencia o lastre negativo",
         )
 
@@ -114,26 +114,26 @@ def _effective_weight(
     if not is_bodyweight:
         if added_weight_kg is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="added_weight_kg es obligatorio en ejercicios con peso externo",
             )
         value = Decimal(added_weight_kg)
         if value <= 0:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="added_weight_kg debe ser mayor que 0 en ejercicios con peso externo",
             )
         return value
     if bodyweight is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="current_bodyweight_kg de la sesión es obligatorio en ejercicios corporales",
         )
     added = Decimal(added_weight_kg) if added_weight_kg is not None else Decimal("0")
     value = bodyweight + added if added >= 0 else bodyweight - abs(added)
     if value <= 0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="effective_weight_kg resultante debe ser mayor que 0",
         )
     return value
@@ -159,12 +159,12 @@ def _calculate_values(
     isometric = WorkoutSetExerciseType.ISOMETRICO.value
     if exercise_type == dynamic and reps is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Un ejercicio dinámico exige reps",
         )
     if exercise_type == isometric and duration_second is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Un ejercicio isométrico exige duration_second",
         )
 
@@ -175,7 +175,7 @@ def _calculate_values(
 
     if rir is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="rir es obligatorio en series dinámicas para calcular el 1RM",
         )
     raw_one_rm = effective * (Decimal("1") + (Decimal(reps + rir) / Decimal("30")))
@@ -206,7 +206,7 @@ def _raise_integrity_error(exc: IntegrityError) -> None:
         )
     if "chk_set" in lowered or "check" in lowered:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="La serie no cumple las restricciones de la base de datos",
         )
     raise HTTPException(
@@ -231,7 +231,7 @@ def _raise_dbapi_error(exc: DBAPIError) -> None:
         )
     if "rn-04" in lowered or "rn-10" in lowered or "rn-12" in lowered:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=message,
         )
     raise HTTPException(

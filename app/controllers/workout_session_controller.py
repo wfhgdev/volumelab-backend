@@ -94,7 +94,7 @@ def _validate_week_ownership(db: Session, week_id: int, user_id: int) -> None:
 
     if mesocycle.user_id != user_id:
         raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Training week with id {week_id} does not belong to user {user_id}",
         )
 
@@ -119,7 +119,7 @@ def _validate_public_session_quota(
     public_session_count = db.scalar(query) or 0
     if public_session_count >= MAX_PUBLIC_SESSIONS_PER_CLIENT:
         raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"CLIENTE cannot have more than {MAX_PUBLIC_SESSIONS_PER_CLIENT} public workout sessions",
         )
 
@@ -215,12 +215,12 @@ def update_workout_session(
     status_value = target_status.value if hasattr(target_status, "value") else target_status
     if status_value == "CERRADO" and target_closed_at is None:
         raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="closed_at is required when status is CERRADO",
         )
     if status_value == "ABIERTO" and target_closed_at is not None:
         raise HTTPException(
-            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=http_status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="closed_at must be null when status is ABIERTO",
         )
 

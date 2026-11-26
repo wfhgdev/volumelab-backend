@@ -81,7 +81,7 @@ def create_workout_rate(
             )
         if "chk_workout_rate" in lowered or "check" in lowered:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="La puntuación debe estar comprendida entre 1 y 5.",
             )
         raise HTTPException(
