@@ -5,7 +5,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Alembic](https://img.shields.io/badge/Alembic-Migrations-6BA81E)](https://alembic.sqlalchemy.org/)
 [![Modelo de Datos](https://img.shields.io/badge/Esquema_BD-v4_(20--11--2026)-16a34a)](#modelo-de-datos)
-[![RGPD](https://img.shields.io/badge/RGPD-Art._17_Derecho_de_Supresi%C3%B3n-2563eb)](#cumplimiento-rgpd-y-auditor%C3%ADa)
+[![RGPD](https://img.shields.io/badge/RGPD-Art._17_Derecho_de_Supresi%C3%B3n-2563eb)](#auditor%C3%ADa-autom%C3%A1tica-y-cumplimiento-rgpd)
 
 API REST y capa de negocio del proyecto **VolumeLab** (Proyecto Deloitte), construida con **Python**, **FastAPI**, **PostgreSQL** y **Alembic**: plataforma de registro, planificación y análisis cuantitativo de entrenamiento de fuerza e hipertrofia.
 
@@ -17,22 +17,23 @@ Este repositorio centraliza la autenticación y autorización por roles, la gest
 
 1. [Resumen del dominio](#resumen-del-dominio)
 2. [Stack tecnológico](#stack-tecnol%C3%B3gico)
-3. [Roles y matriz de permisos](#roles-y-matriz-de-permisos)
-4. [Requisitos funcionales (RF-01 a RF-17)](#requisitos-funcionales-rf-01-a-rf-17)
-5. [Reglas de negocio (RN-01 a RN-19)](#reglas-de-negocio-rn-01-a-rn-19)
-6. [Motor de cálculo y responsabilidades del backend](#motor-de-c%C3%A1lculo-y-responsabilidades-del-backend)
-7. [Modelo de datos](#modelo-de-datos)
+3. [Seguridad, autenticación y autorización](#seguridad-autenticaci%C3%B3n-y-autorizaci%C3%B3n)
+4. [Roles y matriz detallada de permisos](#roles-y-matriz-detallada-de-permisos)
+5. [Requisitos funcionales (RF-01 a RF-17)](#requisitos-funcionales-rf-01-a-rf-17)
+6. [Reglas de negocio (RN-01 a RN-19)](#reglas-de-negocio-rn-01-a-rn-19)
+7. [Motor de cálculo y responsabilidades del backend](#motor-de-c%C3%A1lculo-y-responsabilidades-del-backend)
+8. [Modelo de datos](#modelo-de-datos)
    - [Diagrama Entidad-Relación](#diagrama-entidad-relaci%C3%B3n)
    - [Tipos enumerados (ENUM)](#tipos-enumerados-enum)
    - [Tablas principales](#tablas-principales)
    - [Vistas SQL](#vistas-sql)
    - [Triggers de integridad y negocio](#triggers-de-integridad-y-negocio)
-8. [Cumplimiento RGPD y auditoría](#cumplimiento-rgpd-y-auditor%C3%ADa)
-9. [Estructura del repositorio](#estructura-del-repositorio)
-10. [Manejo global de errores HTTP](#manejo-global-de-errores-http)
-11. [Catálogo de entidades y endpoints API (CRUD)](#cat%C3%A1logo-de-entidades-y-endpoints-api-crud)
-12. [Instalación, migraciones y ejecución local](#instalaci%C3%B3n-migraciones-y-ejecuci%C3%B3n-local)
-13. [Equipo](#equipo)
+9. [Auditoría automática y cumplimiento RGPD](#auditor%C3%ADa-autom%C3%A1tica-y-cumplimiento-rgpd)
+10. [Estructura del repositorio](#estructura-del-repositorio)
+11. [Manejo global de errores HTTP](#manejo-global-de-errores-http)
+12. [Catálogo de entidades y endpoints API (CRUD)](#cat%C3%A1logo-de-entidades-y-endpoints-api-crud)
+13. [Instalación, migraciones, seeders y ejecución local](#instalaci%C3%B3n-migraciones-seeders-y-ejecuci%C3%B3n-local)
+14. [Equipo](#equipo)
 
 ---
 
@@ -55,37 +56,78 @@ Principios clave del diseño backend:
 | --- | --- | --- |
 | **Lenguaje** | Python 3.11+ | Runtime principal del backend |
 | **Framework API** | FastAPI + Uvicorn | Endpoints REST, inyección de dependencias y documentación OpenAPI (`/docs`, `/redoc`) |
-| **Validación / Serialización** | Pydantic v2 | Validación de esquemas de entrada/salida y configuración (`pydantic-settings`) |
+| **Seguridad / Criptografía** | PyJWT + `pwdlib[argon2]` | Tokens de acceso JWT Bearer (HS256) y hasheo robusto de contraseñas con Argon2id |
+| **Validación / Serialización** | Pydantic v2 | Validación de esquemas DTO de entrada/salida y configuración tipada (`pydantic-settings`) |
 | **Base de datos** | PostgreSQL 14+ | Persistencia relacional (`UTF8`, `LC_CTYPE = 'es-ES'`), `ENUM`, vistas y triggers PL/pgSQL |
-| **ORM / Driver** | SQLAlchemy 2.x + `psycopg` / `asyncpg` | Mapeo relacional, consultas analíticas y gestión de transacciones |
-| **Migraciones** | Alembic | Versionado reproducible del esquema, tipos `ENUM`, vistas y triggers |
+| **ORM / Driver** | SQLAlchemy 2.x + `psycopg` | Mapeo relacional síncrono, consultas analíticas y gestión transaccional estricta |
+| **Migraciones** | Alembic | Versionado reproducible del esquema DDL, tipos `ENUM`, vistas y triggers |
 | **Exportación** | CSV (`csv`) / Excel (`openpyxl` o `pandas`) | Exportación de registros y analíticas con trazabilidad en `audit` (**RF-15**) |
-| **Testing** | `pytest` + `httpx` | Pruebas unitarias y de integración contra PostgreSQL |
+| **Testing** | `pytest` + `pytest-bdd` + `httpx` | Pruebas unitarias, de integración, de seguridad/autorización y escenarios BDD (Gherkin) |
 
 ---
 
-## Roles y matriz de permisos
+## Seguridad, autenticación y autorización
 
-El sistema gestiona dos roles definidos mediante `role_user ('ADMIN', 'CLIENTE')`:
+El backend implementa un modelo de seguridad por capas conforme a las especificaciones de **RF-01**, **RF-16** y **RN-17**:
 
-| Capacidad / Recurso | `ADMIN` | `CLIENTE` |
-| --- | :---: | :---: |
-| Gestión de cuentas, roles y estado (`ACTIVO` / `BLOQUEADO`) | Sí | Solo su propio perfil |
-| Gestión de perfil biométrico e histórico de peso (`weight_history`) | Consulta global y gestión | Propio |
-| Creación y mantenimiento de grupos musculares (`muscle_group`) | **Sí (exclusivo)** | No |
-| Creación de ejercicios privados (`workout`, `public = FALSE`) | Sin límite | Sin límite |
-| Creación / publicación de ejercicios públicos (`workout`, `public = TRUE`) | Sin límite | **Máximo 20 públicos** |
-| Desactivación lógica de ejercicios (`state = FALSE`) | Sí | Según propiedad/política |
-| Parametrización de fórmulas (1RM, isométricos) y rangos de validación | Sí | No |
-| Planificación de mesociclos y semanas (`mesocycle`, `training_week`) | Supervisión global | Propios |
-| Creación de sesiones privadas (`workout_session`, `public = FALSE`) | Sin límite | Sin límite |
-| Creación / publicación de sesiones públicas (`workout_session`, `public = TRUE`) | Sin límite | **Máximo 20 públicas** |
-| Registro, edición y reordenación de series (`workout_set`) | Supervisión | Propias (si sesión `ABIERTO`) |
-| Valoración (1–5) de sesiones públicas y ejercicios públicos activos | Sí | Sí (1 voto actualizable por recurso) |
-| Analítica individual y récords personales | Propia y global | Propia |
-| Estadísticas agregadas globales | Sí | No |
-| Exportación (CSV / Excel) con registro en `audit` (`EXPORT`) | Sí | Propia |
-| Consulta de auditoría y gestión de seguridad | Sí | No |
+### 1. Autenticación JWT (Bearer Token)
+- **Estándar:** Tokens firmados mediante **HMAC-SHA256 (HS256)** con librería `PyJWT`, transmitidos en la cabecera `Authorization: Bearer <token>`.
+- **Sin estado en cliente:** Sin cookies ni refresh tokens; tiempo de expiración configurable vía `ACCESS_TOKEN_EXPIRE_MINUTES` (por defecto 60 minutos).
+- **Estructura de Claims del JWT:**
+  - `sub`: Identificador único del usuario (cadena numérica, ej. `"42"`).
+  - `role`: Rol del usuario en el momento de emisión (`ADMIN` o `CLIENTE`, meramente informativo).
+  - `iat`: Timestamp Unix de emisión.
+  - `exp`: Timestamp Unix de caducidad.
+- **Validación en tiempo real:** Aunque el token contenga el claim `role`, el sistema **siempre consulta en base de datos el estado y rol real** del usuario en cada petición entrante (`get_current_user`). Esto garantiza que cambios de rol, desactivaciones o bloqueos de cuenta surtan efecto de forma inmediata sin esperar a que el token expire.
+
+### 2. Criptografía y contraseñas
+- **Hasheo seguro:** Implementado con **`pwdlib[argon2]`** utilizando `PasswordHash.recommended()`.
+- **Compatibilidad de esquema:** Los hashes generados se alojan en la columna existente `app_user.password_hash` (`VARCHAR(255)`), sin requerir modificaciones DDL en la base de datos.
+- **Políticas de complejidad:** Longitud obligatoria de 8 a 128 caracteres, preservando espacios interiores sin aplicar `strip` destructivo.
+- **Sanitización de respuestas:** Ningún endpoint ni esquema de respuesta expone jamás el campo `password` ni `password_hash`. Además, SQLAlchemy mantiene `echo=False` para prevenir fugas de contraseñas, hashes o tokens en logs de consola.
+
+### 3. Endpoints de autenticación pública (`/auth`)
+- **`POST /auth/register`:** Registro de autoservicio para nuevos clientes.
+  - Crea **siempre** un usuario con rol `CLIENTE` y estado `ACTIVO`.
+  - Esquema estricto (`extra="forbid"`): si el cliente intenta enviar campos privilegiados como `role`, `status` o `password_hash`, la petición es rechazada inmediatamente con `422 Unprocessable Entity`.
+- **`POST /auth/login`:** Generación de token JWT.
+  - Mitigación contra enumeración de usuarios: responde exactamente el mismo código `401 Unauthorized` y el mismo mensaje en español tanto si el email no existe como si la contraseña es incorrecta.
+  - Si el usuario existe pero su estado es `BLOQUEADO`, responde `403 Forbidden` informando "Usuario bloqueado".
+- **`GET /auth/me`:** Devuelve el perfil del usuario autenticado actual (`ADMIN` o `CLIENTE`).
+
+### 4. Códigos de respuesta de seguridad y control de acceso
+- **`401 Unauthorized`:** Falta la cabecera `Authorization`, el token es inválido, ha expirado, o el usuario emisor ya no existe o no está `ACTIVO`.
+- **`403 Forbidden`:** Usuario autenticado que no posee los privilegios requeridos por su rol (ej. un `CLIENTE` intentando acceder a rutas de administración o crear recursos a nombre de otro usuario).
+- **`404 Not Found`:** Cuando un `CLIENTE` intenta acceder por ID a un recurso privado perteneciente a otro usuario (ocultamiento intencionado de existencia).
+
+---
+
+## Roles y matriz detallada de permisos
+
+El sistema diferencia entre dos roles de usuario: **`ADMIN`** y **`CLIENTE`**:
+
+| Recurso / Endpoint | `ADMIN` | `CLIENTE` |
+| --- | --- | --- |
+| `/auth/register`, `/auth/login` | Público | Público |
+| `/auth/me` | Consulta su perfil | Consulta su perfil |
+| `/app-users/` | CRUD completo; puede fijar `role` y `status` | `POST`: `403`. `GET` lista: `403`. `GET/PUT/DELETE /{id}`: solo su propia cuenta (otro ID → `404`). Intento de modificar `role` o `status` → `403`. |
+| `/muscle-groups/` | CRUD completo (**exclusivo**) | Solo lectura (`GET` listado y detalle). `POST`, `PUT`, `DELETE` → `403`. |
+| `/audits/` | **Solo lectura:** `GET /` y `GET /{id}` | `403 Forbidden` en todas las operaciones. |
+| `/workouts/` | Acceso y gestión total | Crear (`created_by` forzado a su ID; máx. 20 públicos). `GET`: propios + públicos. `PUT`/`DELETE`: solo ejercicios propios. |
+| `/muscle-workouts/` | Acceso total | Crear/borrar asociaciones únicamente sobre ejercicios propios. `GET`: ejercicios visibles. |
+| `/weight-history/` | Consulta y gestión global | Solo sus propios registros de peso. |
+| `/mesocycles/` | Consulta y supervisión global | Solo sus propios mesociclos. |
+| `/training-weeks/` | Consulta y supervisión global | Solo semanas de mesociclos propios (`training_week` → `mesocycle.user_id`). |
+| `/workout-sessions/` | Acceso y gestión total | Crear con su `user_id` (máx. 20 públicas). `GET`: propias + públicas. `PUT`/`DELETE`: solo sesiones propias. |
+| `/workout-sets/` | Supervisión total | Crear/editar/borrar solo en sesiones propias abiertas (`ABIERTO`). `GET`: en sesiones que tiene permiso de ver (`workout_set` → `workout_session.user_id`). |
+| `/session-rates/`, `/workout-rates/` | Acceso y gestión total | Crear, upsert, editar y borrar **únicamente su propia valoración** (1 voto actualizable por recurso). Consultar puntuaciones agregadas y notas medias. |
+
+### Reglas de visibilidad y propiedad
+1. **Recursos privados vs. públicos:** Un recurso privado (`public = FALSE`) solo es accesible por su dueño o por un `ADMIN`. Un recurso público (`public = TRUE`) puede ser leído por cualquier usuario autenticado, pero **solo su creador original o un `ADMIN` pueden modificarlo o eliminarlo**.
+2. **Resolución automática de propietario (`resolve_owner_id`):** En todos los esquemas `*Create`, los campos `user_id` y `created_by` son opcionales:
+   - Para un `CLIENTE`: Si se omite, el sistema asigna automáticamente el ID del usuario autenticado. Si el cliente envía un ID distinto al suyo, se rechaza con `403 Forbidden`.
+   - Para un `ADMIN`: Permite especificar un ID de usuario destino para crear recursos a nombre de otros usuarios; si se omite, se asigna a sí mismo.
+3. **Filtros en listados:** En consultas de listado (`GET /`), para un `CLIENTE` el filtro de propietario se fuerza automáticamente al suyo (más recursos públicos donde corresponda). Para un `ADMIN`, el filtro de usuario es opcional para permitir auditoría global.
 
 ---
 
@@ -286,14 +328,35 @@ erDiagram
 
 ---
 
-## Cumplimiento RGPD y auditoría
+## Auditoría automática y cumplimiento RGPD
 
-- **Derecho de supresión (RGPD, art. 17 — RN-19):**
-  Al ejecutar `DELETE FROM app_user WHERE id = <user_id>`:
-  - **Eliminación en cascada (`ON DELETE CASCADE`):** `weight_history`, `mesocycle` → `training_week`, `workout_session` → `workout_set`, `session_rate`, `workout_rate` y `audit`.
-  - **Anonimización del catálogo compartido (`ON DELETE SET NULL`):** las filas creadas por el usuario en `workout` y `muscle_group` se conservan con `created_by = NULL` para evitar fallos de integridad referencial (`ON DELETE RESTRICT`) cuando otros usuarios tienen series registradas con dichos ejercicios.
-- **Trazabilidad (`audit` — RF-15, RF-16):**
-  El backend debe registrar toda operación crítica (`INSERT`, `UPDATE`, `DELETE`) y toda exportación de datos (`EXPORT`) indicando `user_id`, `entity`, `record_id`, `action` y `endpoint`.
+### 1. Sistema de auditoría automática (`audit` — RF-15, RF-16)
+- **Registro append-only generado por el sistema:** Ningún usuario (incluido `ADMIN`) puede insertar, modificar o borrar registros de auditoría a través de la API. Los endpoints `POST /audits/`, `PUT /audits/{id}` y `DELETE /audits/{id}` están expresamente inhabilitados (responden `405 Method Not Allowed`).
+- **Control de acceso a auditoría:** **Solo los usuarios con rol `ADMIN`** pueden consultar registros de auditoría (`GET /audits/` y `GET /audits/{id}`). Un usuario `CLIENTE` recibe `403 Forbidden`.
+- **Qué se audita:**
+  - Cada operación exitosa de creación (`INSERT`), modificación (`UPDATE`) o eliminación (`DELETE`) sobre cualquier entidad del sistema, efectuada por cualquier usuario autenticado (`ADMIN` o `CLIENTE`).
+  - El autorregistro de nuevos usuarios (`POST /auth/register`) se audita automáticamente como `INSERT` en `app_user` asociado al ID del usuario recién creado.
+  - Endpoints de tipo upsert registran `INSERT` o `UPDATE` según la acción real ejecutada.
+  - Exportaciones de datos a CSV/Excel registran `EXPORT` (**RF-15**).
+- **Qué NO se audita:**
+  - Peticiones de lectura (`GET`).
+  - Peticiones fallidas (errores `401`, `403`, `404`, `409`, `422`, `500`).
+  - Intentos de login o logout (el enum `audit_action` no almacena eventos de sesión).
+  - Operaciones sobre la propia tabla `audit` (evitando recursión infinita).
+  - La ejecución de seeders de inicialización del sistema.
+- **Campos registrados y privacidad:**
+  - `user_id`: ID del usuario que realizó la acción.
+  - `entity`: Nombre de la tabla en snake_case (`workout`, `workout_session`, `workout_set`, etc.).
+  - `record_id`: Identificador en formato string (clave compuesta separada por `:` en `muscle_workout`, ej. `"3:1"`).
+  - `action`: `INSERT`, `UPDATE`, `DELETE` o `EXPORT`.
+  - `endpoint`: Método y ruta sin query params (ej. `"POST /workout-sessions/"`), truncado a 255 caracteres.
+  - **Privacidad estricta:** La auditoría **nunca** almacena contraseñas, hashes, tokens de acceso ni cuerpos de petición.
+- **Consistencia transaccional:** La inserción de la traza de auditoría ocurre **dentro de la misma transacción de base de datos** que la acción auditada (ambas se confirman o ambas se revierten automáticamente).
+
+### 2. Cumplimiento del derecho de supresión (RGPD, art. 17 — RN-19)
+Al ejecutar la eliminación de un usuario (`DELETE /app-users/{id}`):
+- **Eliminación en cascada (`ON DELETE CASCADE`):** Elimina irreversiblemente `weight_history`, `mesocycle` → `training_week`, `workout_session` → `workout_set`, `session_rate`, `workout_rate` y todas sus trazas en `audit`.
+- **Anonimización del catálogo compartido (`ON DELETE SET NULL`):** Los ejercicios (`workout`) y grupos musculares (`muscle_group`) creados por el usuario se conservan con `created_by = NULL` para no romper el historial de entrenamientos de otros usuarios que tengan series vinculadas (`ON DELETE RESTRICT`).
 
 ---
 
@@ -362,11 +425,11 @@ Todas las entidades del sistema cuentan con su ciclo de vida CRUD estandarizado 
 | **`workout_set`** | `/workout-sets/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | **1 fila = 1 serie.** Motor de cálculo de peso efectivo, 1RM, %1RM y volumen. Bloqueado si la sesión está en estado `CERRADO`. |
 | **`workout_rate`** | `/workout-rates/` | `POST`, `POST /upsert`, `GET`, `GET /{id}`, `GET /score`, `GET /user`, `PUT`, `DELETE` | Puntuaciones de 1 a 5 en ejercicios públicos y activos. Nota media y recuento dinámico expuestos vía vista SQL. |
 | **`session_rate`** | `/session-rates/` | `POST`, `POST /upsert`, `GET`, `GET /{id}`, `GET /score`, `GET /user`, `PUT`, `DELETE` | Puntuaciones de 1 a 5 en sesiones públicas. Nota media y recuento dinámico expuestos vía vista SQL. |
-| **`audit`** | `/audits/` | `POST`, `GET`, `GET /{id}`, `PUT /{id}`, `DELETE /{id}` | Registro de trazabilidad y seguridad para operaciones críticas (`INSERT`, `UPDATE`, `DELETE`, `EXPORT`). |
+| **`audit`** | `/audits/` | `GET`, `GET /{id}` | Registro de trazabilidad append-only. Solo lectura para `ADMIN`. Endpoints de escritura (`POST`, `PUT`, `DELETE`) inhabilitados (`405 Method Not Allowed`). |
 
 ---
 
-## Instalación, migraciones y ejecución local
+## Instalación, migraciones, seeders y ejecución local
 
 ### 1. Requisitos previos
 
@@ -405,6 +468,10 @@ SECRET_KEY=clave_secreta_para_desarrollo_local
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 
+# Administrador inicial (opcional para el seeder)
+ADMIN_EMAIL=admin@volumelab.com
+ADMIN_PASSWORD=Admin1234!
+
 # Configuración de la aplicación
 APP_NAME=VolumeLab Backend
 APP_VERSION=1.0.0
@@ -416,11 +483,13 @@ APP_PORT=8000
 
 ### 4. Migraciones de la base de datos (Alembic)
 
-Para aplicar todas las migraciones acumuladas del esquema hasta la última revisión:
+Para aplicar todas las migraciones acumuladas del esquema hasta las últimas revisiones (*heads*):
 
 ```bash
-alembic upgrade head
+alembic upgrade heads
 ```
+
+> **Nota:** Se utiliza `heads` (en plural) debido a que existen ramas paralelas de migración y puntos de unión (*mergepoints*) para tablas independientes como `workout_set` y `audit`.
 
 Comandos habituales de soporte:
 ```bash
@@ -430,11 +499,36 @@ alembic current
 # Generar una nueva migración por cambios en modelos
 alembic revision --autogenerate -m "descripcion_del_cambio"
 
-# Revertir la última migración
-alembic downgrade -1
+# Historial de migraciones
+alembic history
 ```
 
-### 5. Iniciar el servidor de desarrollo
+### 5. Creación del Administrador inicial y datos de prueba (Seeders)
+
+Para inicializar la base de datos con el usuario administrador inicial (hasheando su contraseña de forma segura con Argon2id):
+
+```bash
+python -m seeders.run --entity admin
+```
+
+*(En Windows PowerShell: `.\env\Scripts\python -m seeders.run --entity admin`)*
+
+- **Credenciales por defecto:**
+  - **Email:** `admin@volumelab.com`
+  - **Contraseña:** `Admin1234!`
+  - **Rol:** `ADMIN` | **Estado:** `ACTIVO`
+- **Idempotencia:** El script puede ejecutarse múltiples veces de forma segura. Si el email ya existe (búsqueda insensible a mayúsculas/minúsculas), no duplica ni modifica el usuario.
+- **Otros seeders disponibles:**
+  ```bash
+  # Poblar valoraciones de prueba
+  python -m seeders.run --entity session_rate --count 50
+  python -m seeders.run --entity workout_rate --count 50
+
+  # Poblar todo el conjunto
+  python -m seeders.run --entity all
+  ```
+
+### 6. Iniciar el servidor de desarrollo
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -444,16 +538,16 @@ La documentación interactiva y el catálogo OpenAPI estarán accesibles en:
 - **Swagger UI:** `http://localhost:8000/docs`
 - **ReDoc:** `http://localhost:8000/redoc`
 
-### 6. Ejecución de pruebas
+### 7. Ejecución de pruebas
 
-El proyecto cuenta con una amplia suite de pruebas automatizadas que combinan tests unitarios, tests de integración y escenarios BDD (Gherkin):
+El proyecto cuenta con una amplia suite de pruebas automatizadas (unitarias, integración, control de acceso por roles y escenarios BDD en Gherkin):
 
 ```bash
-# Ejecutar todas las pruebas del proyecto (unitarias, integración y BDD)
-pytest -v
-
-# Ejecutar omitiendo las pruebas con conexión externa directa a PostgreSQL
+# Ejecutar la suite completa de pruebas unitarias, integración y BDD
 pytest -v -m "not postgres"
+
+# Ejecutar todas las pruebas (incluyendo las que requieren base de datos PostgreSQL real)
+pytest -v
 
 # Ejecutar pruebas PostgreSQL sobre bases de datos desechables aisladas
 pytest -v --run-postgres
