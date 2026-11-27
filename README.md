@@ -6,6 +6,7 @@
 [![Alembic](https://img.shields.io/badge/Alembic-Migrations-6BA81E)](https://alembic.sqlalchemy.org/)
 [![Modelo de Datos](https://img.shields.io/badge/Esquema_BD-v4_(20--11--2026)-16a34a)](#modelo-de-datos)
 [![RGPD](https://img.shields.io/badge/RGPD-Art._17_Derecho_de_Supresi%C3%B3n-2563eb)](#auditor%C3%ADa-autom%C3%A1tica-y-cumplimiento-rgpd)
+[![Tests](https://github.com/wfhgdev/volumelab-backend/actions/workflows/tests.yml/badge.svg)](https://github.com/wfhgdev/volumelab-backend/actions/workflows/tests.yml)
 
 API REST y capa de negocio del proyecto **VolumeLab** (Proyecto Deloitte), construida con **Python**, **FastAPI**, **PostgreSQL** y **Alembic**: plataforma de registro, planificación y análisis cuantitativo de entrenamiento de fuerza e hipertrofia.
 
@@ -62,7 +63,7 @@ Principios clave del diseño backend:
 | **ORM / Driver** | SQLAlchemy 2.x + `psycopg` | Mapeo relacional síncrono, consultas analíticas y gestión transaccional estricta |
 | **Migraciones** | Alembic | Versionado reproducible del esquema DDL, tipos `ENUM`, vistas y triggers |
 | **Exportación** | CSV (`csv`) / Excel (`openpyxl` o `pandas`) | Exportación de registros y analíticas con trazabilidad en `audit` (**RF-15**) |
-| **Testing** | `pytest` + `pytest-bdd` + `httpx` | Pruebas unitarias, de integración, de seguridad/autorización y escenarios BDD (Gherkin) |
+| **Testing** | `pytest` + `pytest-bdd` + `httpx` [![Tests](https://github.com/wfhgdev/volumelab-backend/actions/workflows/tests.yml/badge.svg)](https://github.com/wfhgdev/volumelab-backend/actions/workflows/tests.yml) | Pruebas unitarias, de integración, de seguridad/autorización y escenarios BDD (Gherkin) |
 
 ---
 
